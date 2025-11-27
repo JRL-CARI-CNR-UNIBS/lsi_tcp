@@ -131,7 +131,7 @@ Le implementazioni concrete sono:
   L’equazione (schematica) è:
 
   $$ 
-- \frac{T}{U}=\frac{K}{\tau s+1}e^{-sL}
+\frac{T}{U}=\frac{K}{\tau s+1}e^{-sL}
   $$
 
   Il tempo di ritardo L è implementato con una coda in funzione del `log_interval`.
