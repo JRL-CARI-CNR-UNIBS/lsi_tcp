@@ -1,3 +1,4 @@
 plotly
 dash
 tclab
+dash-html-components  dash-core-components dash-table
