@@ -16,18 +16,16 @@ def build_controllers(sampling_period: float):
     """
     Crea i controllori e li restituisce in un dict.
     """
-    c1 = PController(
+    c1 = ManualController(
         sampling_period=sampling_period,
-        Kp=2.0,
+        manual_control_action=0.0,
         u_min=0.0,
         u_max=100.0,
     )
-    # tuning iniziale
-    c1.setParameters({"Kp": 3.0})
 
-    c2 = PController(
+    c2 = ManualController(
         sampling_period=sampling_period,
-        Kp=2.0,
+        manual_control_action=0.0,
         u_min=0.0,
         u_max=100.0,
     )

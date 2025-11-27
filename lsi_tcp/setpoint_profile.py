@@ -20,7 +20,7 @@ class SetpointProfile:
     Il profilo è considerato periodico: quando t > t_end, si ricomincia da t=0.
     """
 
-    def __init__(self, csv_path: str, interpolate: bool = False):
+    def __init__(self, csv_path: str):
         self.samples: List[SetpointSample] = []
 
         with open(csv_path, newline="") as f:
@@ -49,12 +49,11 @@ class SetpointProfile:
         if self.t_end <= 0:
             raise ValueError("t_end deve essere > 0.")
 
-        self.interpolate = interpolate
-
     def get_setpoints(self, t: float) -> Tuple[float, float]:
         """
         Restituisce (T1_ref, T2_ref) per il tempo t [s].
         Il profilo è periodico: uso t_mod = t % t_end.
+        Zero-Order Hold: mantengo l'ultimo valore valido.
         """
         if t < 0:
             t = 0.0
@@ -71,23 +70,10 @@ class SetpointProfile:
         # Cerco l'intervallo [prev, s] in cui cade t_mod
         for s in self.samples[1:]:
             if t_mod <= s.t:
-                if not self.interpolate:
-                    # Zero-Order Hold: mantengo il valore precedente
-                    return prev.T1, prev.T2
-
-                # Interpolazione lineare tra prev e s
-                dt = s.t - prev.t
-                if dt <= 0:
-                    # tempi uguali o ordinamento strano: fallback ZOH
-                    return prev.T1, prev.T2
-
-                alpha = (t_mod - prev.t) / dt
-                T1 = prev.T1 + alpha * (s.T1 - prev.T1)
-                T2 = prev.T2 + alpha * (s.T2 - prev.T2)
-                return T1, T2
-
+                # Zero-Order Hold: mantengo il valore precedente
+                return prev.T1, prev.T2
             prev = s
 
-        # In teoria non dovremmo arrivare qui, ma per sicurezza:
+        # Per sicurezza, restituisco l'ultimo campione
         last = self.samples[-1]
         return last.T1, last.T2

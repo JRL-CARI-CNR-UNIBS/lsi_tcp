@@ -3,14 +3,7 @@ import time
 import threading
 import csv
 from datetime import datetime
-import dash
-from dash import dcc, html
-import plotly.graph_objs as go
-import dash.dependencies as dd
-from plotly.subplots import make_subplots
 import logging
-import os
-import signal
 import math
 from abc import ABC, abstractmethod
 
@@ -22,8 +15,8 @@ class BaseTCLabSystem(ABC):
     Gestisce:
     - thread di acquisizione
     - logging su CSV
-    - buffer dati per il grafico
-    - server Dash
+    - buffer dati (time_data, t1_data, ...)
+      (NON fa più la dashboard: niente Dash/Plotly qui)
 
     Le sottoclassi DEVONO implementare:
         _initialize_lab()
@@ -32,17 +25,18 @@ class BaseTCLabSystem(ABC):
         _close_lab()
     """
 
-    def __init__(self, log_flag=False, log_interval=1.0, plot_period=1.0,
-                 time_window=300, realtime_factor=1.0):
+    def __init__(self, log_flag=False, log_interval=1.0,
+                 plot_period=1.0, time_window=300,
+                 realtime_factor=1.0):
         # Imposta il livello di log di Flask per evitare la verbosità
         log = logging.getLogger('werkzeug')
-        log.setLevel(logging.ERROR)  # Solo errori, niente info o debug
+        log.setLevel(logging.ERROR)
 
         # Parametri generali
         self.log_flag = log_flag
         self.log_interval = float(log_interval)
-        self.plot_period = float(plot_period)
-        self.time_window = int(time_window)
+        self.plot_period = float(plot_period)   # tenuti per compatibilità
+        self.time_window = int(time_window)     # tenuti per compatibilità
 
         # Fattore di tempo (1.0 = reale)
         self.realtime_factor = float(realtime_factor) if realtime_factor > 0 else 1.0
@@ -52,7 +46,7 @@ class BaseTCLabSystem(ABC):
         # Lock per thread-safety
         self.lock = threading.Lock()
 
-        # Buffer dati per grafico
+        # Buffer dati
         self.time_data = []
         self.t1_data = []
         self.t2_data = []
@@ -79,37 +73,6 @@ class BaseTCLabSystem(ABC):
         # Thread di acquisizione
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
-
-        # Inizializzazione di Dash
-        self.app = dash.Dash(__name__)
-        self.app.layout = html.Div([
-            html.Div([
-                dcc.Input(
-                    id='time-window',
-                    type='number',
-                    value=self.time_window,
-                    min=1,
-                    step=1,
-                    style={'width': '100px'}
-                ),
-                html.Label('Finestra temporale (n° dati da visualizzare)')
-            ]),
-            dcc.Graph(id='real-time-graph'),
-            dcc.Interval(id='interval-component',
-                         interval=self.plot_period * 1000,
-                         n_intervals=0)
-        ])
-
-        # Callback per aggiornare il grafico in tempo reale
-        self.app.callback(
-            dd.Output('real-time-graph', 'figure'),
-            [dd.Input('interval-component', 'n_intervals'),
-             dd.Input('time-window', 'value')]
-        )(self.update_graph)
-
-        # Avvio del server Dash in un thread separato
-        self.app_thread = threading.Thread(target=self.run_dash, daemon=True)
-        self.app_thread.start()
 
     # --------- Utilità tempo simulato ----------
 
@@ -166,7 +129,7 @@ class BaseTCLabSystem(ABC):
             sim_time = self._get_sim_time()
             timestamp = sim_time.strftime("%H:%M:%S")
 
-            # Aggiorna buffer per il grafico
+            # Aggiorna buffer
             with self.lock:
                 self.time_data.append(timestamp)
                 self.t1_data.append(t1)
@@ -209,101 +172,16 @@ class BaseTCLabSystem(ABC):
             self.csv_writer.writerow([timestamp, t1, t2, u1, u2])
             self.log_file.flush()
 
-    def update_graph(self, n, time_window):
-        """Funzione per aggiornare il grafico in tempo reale."""
-        if time_window is None or time_window < 1:
-            time_window = self.time_window
-
-        with self.lock:
-            if not self.time_data:
-                # Nessun dato ancora: figura vuota ma coerente
-                time_data = []
-                t1_data = []
-                t2_data = []
-                u1_data = []
-                u2_data = []
-            else:
-                max_time_window = min(len(self.time_data), int(time_window))
-
-                time_data = self.time_data[-max_time_window:]
-                t1_data = self.t1_data[-max_time_window:]
-                t2_data = self.t2_data[-max_time_window:]
-                u1_data = self.u1_data[-max_time_window:]
-                u2_data = self.u2_data[-max_time_window:]
-
-        # Crea il grafico con 4 righe
-        fig = make_subplots(
-            rows=4, cols=1,
-            shared_xaxes=True,
-            vertical_spacing=0.01,
-            subplot_titles=('Temperature (T1)', 'Control Command (U1)',
-                            'Temperature (T2)', 'Control Command (U2)')
-        )
-
-        # T1 (riga 1)
-        fig.add_trace(
-            go.Scatter(x=time_data, y=t1_data, mode='lines', name='T1'),
-            row=1, col=1
-        )
-
-        # U1 (riga 2)
-        fig.add_trace(
-            go.Scatter(x=time_data, y=u1_data, mode='lines', name='U1'),
-            row=2, col=1
-        )
-
-        # T2 (riga 3)
-        fig.add_trace(
-            go.Scatter(x=time_data, y=t2_data, mode='lines', name='T2'),
-            row=3, col=1
-        )
-
-        # U2 (riga 4)
-        fig.add_trace(
-            go.Scatter(x=time_data, y=u2_data, mode='lines', name='U2'),
-            row=4, col=1
-        )
-
-        subplot_positions = [(1, 1), (2, 1), (3, 1), (4, 1)]
-
-        # Tick sull'asse X (ogni 15 punti circa)
-        if len(time_data) > 0:
-            for row, col in subplot_positions:
-                fig.update_xaxes(
-                    tickvals=[time_data[i] for i in range(0, len(time_data), 15)],
-                    ticktext=[str(time_data[i]) for i in range(0, len(time_data), 15)],
-                    row=row, col=col
-                )
-
-        # Impostazioni finali del grafico
-        fig.update_layout(
-            title="Temperatures and Control Commands in Real Time",
-            xaxis={'title': 'Time'},
-            yaxis={'title': 'Value'},
-            showlegend=True,
-            width=1200,
-            height=2400,
-        )
-
-        return fig
-
-    def run_dash(self):
-        """Esegui il server Dash in un thread separato."""
-        self.app.run(debug=False, use_reloader=False)
-
     def stop(self):
         """Ferma i thread e chiude il file di log."""
         self.running = False
-        self.thread.join()  # Attende che il thread principale termini
+        self.thread.join()
 
         if self.log_flag and self.log_file:
-            self.log_file.close()  # Chiude il file di log
+            self.log_file.close()
 
-        # Chiusura specifica della sottoclasse (es. board fisica)
+        # Chiusura specifica della sottoclasse
         self._close_lab()
-
-        # Se vuoi terminare il processo intero:
-        # os.kill(os.getpid(), signal.SIGINT)
 
 
 # -------------------------------------------------------------------------
@@ -397,7 +275,6 @@ class FakeTCLabSystem(BaseTCLabSystem):
         self.T2 = self.Tamb
 
         # Dead-time implementato come coda (numero di campioni di ritardo)
-        # uso log_interval come dt "nominale"
         dt = self.log_interval if self.log_interval > 0 else 1.0
 
         self.n_delay1 = max(1, int(round(self.L1 / dt))) if self.L1 > 0 else 1
@@ -416,7 +293,6 @@ class FakeTCLabSystem(BaseTCLabSystem):
             return
 
         # Aggiorna le code di ritardo con gli ultimi comandi
-        # (ogni chiamata corrisponde ad un "passo" di simulazione).
         self.u1_queue.pop(0)
         self.u1_queue.append(self.u1)
 
@@ -426,8 +302,7 @@ class FakeTCLabSystem(BaseTCLabSystem):
         u1_delayed = self.u1_queue[0]
         u2_delayed = self.u2_queue[0]
 
-        # Eulero esplicito per il modello FOPDT
-        # dT/dt = (-(T - Tamb) + K * u_delayed) / tau
+        # Eulero esplicito
         if self.tau1 > 0:
             self.T1 += dt / self.tau1 * (-(self.T1 - self.Tamb) + self.K1 * u1_delayed)
 
@@ -441,7 +316,6 @@ class FakeTCLabSystem(BaseTCLabSystem):
         - fa avanzare il modello di ~log_interval secondi (tempo simulato)
         - restituisce T1, T2 aggiornati
         """
-        # dt di simulazione = log_interval (non scalato: lo scaling è via realtime_factor)
         dt = self.log_interval if self.log_interval > 0 else 1.0
 
         with self.lock:
@@ -452,12 +326,7 @@ class FakeTCLabSystem(BaseTCLabSystem):
         return t1, t2
 
     def _apply_control(self, u1, u2):
-        """
-        Nel fake non c'è hardware: memorizzo solo i comandi,
-        le code di ritardo vengono aggiornate in _advance_model().
-        """
-        # Non serve fare altro: u1, u2 sono salvati dal metodo base
-        # writeControlCommands; qui potresti loggare, se vuoi.
+        """Nel fake non c'è hardware: memorizzo solo i comandi."""
         pass
 
     def _close_lab(self):
