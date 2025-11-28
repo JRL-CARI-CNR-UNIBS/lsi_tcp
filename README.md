@@ -544,7 +544,72 @@ Dopo aver identificato i parametri FOPDT di T1 e T2, userete questo script per:
 
 Di seguito una **roadmap pratica** che collega il codice del repository ai tre step richiesti.
 
-### 5.1. Step 1 – Prova di identificazione (anello aperto)
+### 5.1. Preparare il codice
+Creare una cartella di lavoro (non tclab)
+
+
+### 5.2. Step 1 – Prova di identificazione (anello aperto)
+
+Script per il controllo manuale (da copiare nella cartella di lavoro)
+```python
+from lsi_tcp import TCLabSystem, FakeTCLabSystem
+from lsi_tcp import PController, ManualController
+from lsi_tcp import ControllerDashboard
+from lsi_tcp import SetpointProfile
+from lsi_tcp import build_setpoint_profile, build_process, init_controllers, run_closed_loop
+import time
+
+# ==========================
+# Configurazione generale
+# ==========================
+
+USE_FAKE = True            # True -> usa FakeTCLabSystem, False -> hardware reale
+SAMPLING_PERIOD = 1.0      # [s]
+
+def build_controllers(sampling_period: float):
+    """
+    Crea i controllori e li restituisce in un dict.
+    """
+    c1 = ManualController(
+        sampling_period=sampling_period,
+        manual_control_action=0.0,
+        u_min=0.0,
+        u_max=100.0,
+    )
+
+    c2 = ManualController(
+        sampling_period=sampling_period,
+        manual_control_action=0.0,
+        u_min=0.0,
+        u_max=100.0,
+    )
+
+    controllers = {
+        "controller1": c1,
+        "controller2": c2,
+    }
+    return controllers
+
+
+def main():
+    process, real_time_factor = build_process(USE_FAKE)
+    controllers = build_controllers(SAMPLING_PERIOD)
+    init_controllers(controllers, process)
+
+    setpoint_profile = build_setpoint_profile("lsi_tcp/example.csv")
+    run_closed_loop(
+        process=process,
+        controllers=controllers,
+        setpoint_profile=setpoint_profile,
+        real_time_factor=real_time_factor,
+        max_duration=5*3600.0,
+    )
+
+
+if __name__ == "__main__":
+    main()
+
+```
 
 1. **Preparazione del sistema**
    - scegliete se lavorare in simulazione (`USE_FAKE = True`) o con l’hardware reale (`USE_FAKE = False`);
@@ -561,7 +626,7 @@ Di seguito una **roadmap pratica** che collega il codice del repository ai tre s
    - assicuratevi che `log_flag=True` in `TCLabSystem` / `FakeTCLabSystem`;
    - al termine otterrete un file CSV `tclab_YYYYMMDDHHMMSS.csv` con colonne `Time, T1, T2, U1, U2`.
 
-### 5.2. Step 2 – Modellazione FOPDT dai CSV
+### 5.3. Step 2 – Modellazione FOPDT dai CSV
 
 In un notebook Jupyter o in uno script Python separato:
 
@@ -609,7 +674,48 @@ P(s)=\frac{K}{\tau s+1}e^{-sL}
    
    da usare nella fase di taratura.
 
-### 5.3. Step 3 – Taratura dei due anelli di controllo
+### 5.4. Step 3 – Implementare il Controllore
+Implementare il controllore PID derivando dalla classe [base](lsi_tcp/base_controller.py)
+
+Potete usare partire dall'implemetazione del [proporzionale](lsi_tcp/proportional_controller.py)
+
+Per poter modificare i parametri online aggiungeteli qui:
+```python
+        # Aggiungi i parametri specifici del controllore
+        self._parameters.update({
+            "Kp": Kp,
+        })
+```
+
+Un esempio di script per lanciare il controllore è [qui](example_proportional.py).
+In particolare va modificata:
+```python
+def build_controllers(sampling_period: float):
+    """
+    Crea i controllori e li restituisce in un dict.
+    """
+    c1 = YourMagicController(
+        sampling_period=sampling_period,
+        manual_control_action=0.0,
+        u_min=0.0,
+        u_max=100.0,
+    )
+
+    c2 = YourMagicController(
+        sampling_period=sampling_period,
+        manual_control_action=0.0,
+        u_min=0.0,
+        u_max=100.0,
+    )
+
+    controllers = {
+        "controller1": c1,
+        "controller2": c2,
+    }
+    return controllers
+```
+
+### 5.5. Step 3 – Taratura dei due anelli di controllo
 
 1. **Scelta della struttura di controllo**
 
