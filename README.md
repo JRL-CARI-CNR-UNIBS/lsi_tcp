@@ -23,19 +23,12 @@ Il pacchetto espone:
 
 ### 1.1. Clonare / installare il pacchetto
 
-Installazione diretta da GitHub (consigliata per gli studenti):
+Installazione diretta da GitHub:
 
 ```bash
 pip install "git+https://github.com/JRL-CARI-CNR-UNIBS/lsi_tcp.git#master"
 ```
 
-Oppure clonando il repository:
-
-```bash
-git clone https://github.com/JRL-CARI-CNR-UNIBS/lsi_tcp.git
-cd lsi_tcp
-pip install -e .
-```
 
 ### 1.2. Dipendenze principali
 
@@ -49,9 +42,20 @@ Per installarli (se non già inclusi nell’installazione precedente):
 ```bash
 pip install -r requirements.txt
 ```
+oppure
+```bash
+pip install dash plotly tclab dash-html-components  dash-core-components dash-table
+```
+> **Nota**: il pacchetto è pensato per Python ≥ 3.11 .
 
-> **Nota**: il pacchetto è pensato per Python ≥ 3.11 (vedi `pyproject.toml`).
 
+### 1.3. Connessione
+La connessione del dispositivo è descritta nella foto
+![connessione.png](connessione.png)
+e a questo [link](https://jckantor.github.io/cbe30338-book/tclab/00.01-setting-up-tclab.html).
+
+> [!WARNING]  
+> Gli heater possono essere molto caldi, non toccateli!
 ---
 
 ## 2. Struttura del repository
@@ -128,7 +132,7 @@ Le implementazioni concrete sono:
   - canale T1 ↔ U1 con parametri (K1, τ1, L1);
   - canale T2 ↔ U2 con parametri (K2, τ2, L2).
 
-  L’equazione (schematica) è:
+  L’equazione è:
 
   $$ 
 \frac{T}{U}=\frac{K}{\tau s+1}e^{-sL}
@@ -583,26 +587,26 @@ In un notebook Jupyter o in uno script Python separato:
 
    Per ciascuna temperatura di interesse (es. T1 per un gradino su U1):
 
-   - valore iniziale \(T_0\) e valore finale \(T_\infty\);
+   - valore iniziale $T_0$ e valore finale $T_\infty$;
    - guadagno:
 
-     \[
-     K = rac{T_\infty - T_0}{U_	ext{final} - U_	ext{initial}}
-     \]
-
-   - tempo morto \(	heta\): istante in cui la risposta inizia a deviare in modo significativo;
-   - costante di tempo \(	au\): istante in cui la risposta raggiunge il 63% dell’incremento, meno la \(	heta\).
-
-   Potete anche usare metodi numerici (es. `scipy.optimize.curve_fit`) per affinare la stima.
-
+     $$
+       K =\frac{T_\infty - T_0}{U_\text{final} - U_\text{initial}}
+     $$
+   - $t_{10\%}$ tempo in cui si raggiunge il 10\% della variazione
+   - $t_{90\%}$ tempo in cui si raggiunge il 10\% della variazione
+   - costante di tempo $\tau=\frac{t_{90\%}-t_{10\%}}{2.2}$.
+   - tempo morto $L=t_{10\%}-0.1\tau$ 
+   
+   
 5. **Modello finale**
 
    Ottenete per ciascun canale un modello:
 
-   \[
-   G_i(s) = rac{K_i}{	au_i s + 1} e^{-	heta_i s}, \quad i = 1,2
-   \]
-
+    $$
+P(s)=\frac{K}{\tau s+1}e^{-sL}
+    $$
+   
    da usare nella fase di taratura.
 
 ### 5.3. Step 3 – Taratura dei due anelli di controllo

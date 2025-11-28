@@ -9,7 +9,7 @@ import time
 # Configurazione generale
 # ==========================
 
-USE_FAKE = True            # True -> usa FakeTCLabSystem, False -> hardware reale
+USE_FAKE = False            # True -> usa FakeTCLabSystem, False -> hardware reale
 SAMPLING_PERIOD = 1.0      # [s]
 
 def build_controllers(sampling_period: float):
