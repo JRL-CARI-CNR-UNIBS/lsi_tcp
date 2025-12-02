@@ -550,7 +550,18 @@ Creare una cartella di lavoro (non tclab)
 
 ### 5.2. Step 1 – Prova di identificazione (anello aperto)
 
-Script per il controllo manuale (da copiare nella cartella di lavoro)
+Creare il file CSV (esempio in `example.csv`):
+
+```text
+t,T1,T2
+0,25,25
+300,40,25
+600,50,30
+900,50,50
+1200,30,30
+```
+
+e lo script per il controllo manuale (da copiare nella cartella di lavoro)
 ```python
 from lsi_tcp import TCLabSystem, FakeTCLabSystem
 from lsi_tcp import PController, ManualController
@@ -596,7 +607,7 @@ def main():
     controllers = build_controllers(SAMPLING_PERIOD)
     init_controllers(controllers, process)
 
-    setpoint_profile = build_setpoint_profile("lsi_tcp/example.csv")
+    setpoint_profile = build_setpoint_profile("example.csv")
     run_closed_loop(
         process=process,
         controllers=controllers,
