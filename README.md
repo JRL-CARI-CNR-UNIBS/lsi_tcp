@@ -666,9 +666,7 @@ In un notebook Jupyter o in uno script Python separato:
    - valore iniziale $T_0$ e valore finale $T_\infty$;
    - guadagno:
 
-     $$
-       K =\frac{T_\infty - T_0}{U_\text{final} - U_\text{initial}}
-     $$
+     $$K =\frac{T_\infty - T_0}{U_\text{final} - U_\text{initial}}$$
    - $t_{10}$ tempo in cui si raggiunge il 10\% della variazione
    - $t_{90}$ tempo in cui si raggiunge il 10\% della variazione
    - Costante di tempo $\tau=\frac{t_{90}-t_{10}}{2.2}$.
@@ -679,9 +677,7 @@ In un notebook Jupyter o in uno script Python separato:
 
    Ottenete per ciascun canale un modello:
 
-    $$
-P(s)=\frac{K}{\tau s+1}e^{-sL}
-    $$
+    $$P(s)=\frac{K}{\tau s+1}e^{-sL}$$
    
    da usare nella fase di taratura.
 
