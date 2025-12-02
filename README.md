@@ -658,10 +658,10 @@ In un notebook Jupyter o in uno script Python separato:
      $$
        K =\frac{T_\infty - T_0}{U_\text{final} - U_\text{initial}}
      $$
-   - $t_{10\%}$ tempo in cui si raggiunge il 10\% della variazione
-   - $t_{90\%}$ tempo in cui si raggiunge il 10\% della variazione
-   - costante di tempo $\tau=\frac{t_{90\%}-t_{10\%}}{2.2}$.
-   - tempo morto $L=t_{10\%}-0.1\tau$ 
+   - $t_{10}$ tempo in cui si raggiunge il 10\% della variazione
+   - $t_{90}$ tempo in cui si raggiunge il 10\% della variazione
+   - Costante di tempo $\tau=\frac{t_{90}-t_{10}}{2.2}$.
+   - tempo morto $L=t_{10}-0.1\tau$ 
    
    
 5. **Modello finale**
