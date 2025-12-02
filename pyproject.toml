@@ -13,12 +13,12 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     # "requests>=2.0",  # se ti servono dipendenze
-    dash>=3.3.0,
-    dash-core-components>=2.0.0,
-    dash-html-components>=2.0.0,
-    dash-table>=5.0.0,
-    plotly>=6.5.0,
-    tclab>=1.0.0
+    "dash>=3.3.0",
+    "dash-core-components>=2.0.0",
+    "dash-html-components>=2.0.0",
+    "dash-table>=5.0.0",
+    "plotly>=6.5.0",
+    "tclab>=1.0.0"
 ]
 
 [tool.setuptools.packages.find]
