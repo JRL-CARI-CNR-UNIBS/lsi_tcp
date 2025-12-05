@@ -1,41 +1,11 @@
 # Indice
 
-- [lsi_tcp – Laboratorio di Controllo con il Temperature Control Lab](#lsi_tcp-–-laboratorio-di-controllo-con-il-temperature-control-lab)
-  - [1. Installazione](#1.-installazione)
-    - [1.1. Clonare / installare il pacchetto](#1.1.-clonare-/-installare-il-pacchetto)
-    - [1.2. Dipendenze principali](#1.2.-dipendenze-principali)
-    - [1.3. Connessione](#1.3.-connessione)
-  - [2. Struttura del repository](#2.-struttura-del-repository)
-  - [3. Concetti di base del pacchetto](#3.-concetti-di-base-del-pacchetto)
-    - [3.1. Sistemi TCLab: `TCLabSystem` e `FakeTCLabSystem`](#3.1.-sistemi-tclab-`tclabsystem`-e-`faketclabsystem`)
-      - [Costruttori tipici](#costruttori-tipici)
-      - [Metodi essenziali](#metodi-essenziali)
-      - [File di log CSV](#file-di-log-csv)
-    - [3.2. Controllori SISO](#3.2.-controllori-siso)
-      - [3.2.1. `PController`](#3.2.1.-`pcontroller`)
-      - [3.2.2. `ManualController`](#3.2.2.-`manualcontroller`)
-    - [3.3. Dashboard dei controllori](#3.3.-dashboard-dei-controllori)
-- [Avvio in thread separato (tipico negli esempi)](#avvio-in-thread-separato-(tipico-negli-esempi))
-    - [3.4. Profili di setpoint: `SetpointProfile`](#3.4.-profili-di-setpoint-`setpointprofile`)
-- [Nel loop di controllo:](#nel-loop-di-controllo)
-    - [3.5. Utility di alto livello: `utils.py`](#3.5.-utility-di-alto-livello-`utils.py`)
-      - [`build_process(use_fake: bool, real_time_factor: float = 10.0)`](#`build_process(use_fake-bool-real_time_factor-float-=-10.0)`)
-      - [`build_setpoint_profile(csv_path: str) -> SetpointProfile`](#`build_setpoint_profile(csv_path-str)-->-setpointprofile`)
-      - [`init_controllers(controllers, process)`](#`init_controllers(controllers-process)`)
-      - [`run_closed_loop(process, controllers, setpoint_profile, real_time_factor, max_duration=None)`](#`run_closed_loop(process-controllers-setpoint_profile-real_time_factor-max_duration=none)`)
-  - [4. Gli esempi: `example_open_loop.py` e `example_proportional.py`](#4.-gli-esempi-`example_open_loop.py`-e-`example_proportional.py`)
-    - [4.1. `example_open_loop.py` – Prova in anello aperto](#4.1.-`example_open_loop.py`-–-prova-in-anello-aperto)
-    - [4.2. `example_proportional.py` – Controllo P in anello chiuso](#4.2.-`example_proportional.py`-–-controllo-p-in-anello-chiuso)
-  - [5. Guida al progetto degli studenti](#5.-guida-al-progetto-degli-studenti)
-    - [5.1. Preparare il codice](#5.1.-preparare-il-codice)
-    - [5.2. Step 1 – Prova di identificazione (anello aperto)](#5.2.-step-1-–-prova-di-identificazione-(anello-aperto))
-- [==========================](#==========================)
-- [Configurazione generale](#configurazione-generale)
-- [==========================](#==========================)
-    - [5.3. Step 2 – Modellazione FOPDT dai CSV](#5.3.-step-2-–-modellazione-fopdt-dai-csv)
-    - [5.4. Step 3 – Implementare il Controllore](#5.4.-step-3-–-implementare-il-controllore)
-    - [5.5. Step 3 – Taratura dei due anelli di controllo](#5.5.-step-3-–-taratura-dei-due-anelli-di-controllo)
-  - [6. Suggerimenti per la relazione finale](#6.-suggerimenti-per-la-relazione-finale)
+- [Installazione](#1-installazione)
+- [Struttura del repository](#2-struttura-del-repository)
+- [Concetti di base del pacchetto](#3-concetti-di-base-del-pacchetto)
+- [Esempi](#4-gli-esempi-example_open_looppy-e-example_proportionalpy)
+- [Guida allo sviluppo del progetto](#5-guida-al-progetto-degli-studenti)
+- [Suggeimenti per la relazione](#6-suggerimenti-per-la-relazione-finale)
 
 # lsi_tcp – Laboratorio di Controllo con il Temperature Control Lab
 
@@ -60,31 +30,31 @@ Il pacchetto espone:
 
 ## 1. Installazione
 
-### 1.1. Clonare / installare il pacchetto
+### 1.1. Programmi da installare 
+
+In Windows,
+- [Git](https://git-scm.com/install/windows)
+- [Anaconda](https://repo.anaconda.com/archive/Anaconda3-2025.06-0-Linux-x86_64.sh) 
+
+In Ubuntu, aprire il terminale e copiare questo comando
+```bash
+sudo apt install git python3.12
+```
+
+### 1.2. Clonare / installare il pacchetto
 
 Installazione diretta da GitHub:
 
+In Windows aprire `anaconda power shell` e copiare questo comando
 ```bash
 pip install "git+https://github.com/JRL-CARI-CNR-UNIBS/lsi_tcp.git#master"
 ```
 
-
-### 1.2. Dipendenze principali
-
-Il file `requirements.txt` include i pacchetti necessari, fra cui:
-
-- `tclab` – interfaccia al banco hardware;
-- `dash`, `plotly`, `dash-html-components`, `dash-core-components`, `dash-table` – per la dashboard web.
-
-Per installarli (se non già inclusi nell’installazione precedente):
-
+In Ubuntu, aprire il terminale e copiare questo comando
 ```bash
-pip install -r requirements.txt
+pip install "git+https://github.com/JRL-CARI-CNR-UNIBS/lsi_tcp.git#master"
 ```
-oppure
-```bash
-pip install dash plotly tclab dash-html-components  dash-core-components dash-table
-```
+
 > **Nota**: il pacchetto è pensato per Python ≥ 3.11 .
 
 
@@ -725,6 +695,10 @@ Implementare il controllore PID derivando dalla classe [base](lsi_tcp/base_contr
 
 Potete usare partire dall'implemetazione del [proporzionale](lsi_tcp/proportional_controller.py)
 
+La descrizione dettagliata del controllore proporzionale si trova [qui](lsi_tcp\PController.md)
+
+Le linee guida per implementare il codice sono [qui](lsi_tcp\linee_guida_controllore.md)
+
 Per poter modificare i parametri online aggiungeteli qui:
 ```python
         # Aggiungi i parametri specifici del controllore
@@ -826,3 +800,5 @@ usate le utility in `lsi_tcp.utils` e completate le parti mancanti
 per costruire il vostro progetto completo di 
 
 identificazione→ modellazione → taratura dei controlli.
+
+
