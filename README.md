@@ -695,9 +695,9 @@ Implementare il controllore PID derivando dalla classe [base](lsi_tcp/base_contr
 
 Potete usare partire dall'implemetazione del [proporzionale](lsi_tcp/proportional_controller.py)
 
-La descrizione dettagliata del controllore proporzionale si trova [qui](lsi_tcp\PController.md)
+La descrizione dettagliata del controllore proporzionale si trova [qui](lsi_tcp/PController.md)
 
-Le linee guida per implementare il codice sono [qui](lsi_tcp\linee_guida_controllore.md)
+Le linee guida per implementare il codice sono [qui](lsi_tcp/linee_guida_controllore.md)
 
 Per poter modificare i parametri online aggiungeteli qui:
 ```python
