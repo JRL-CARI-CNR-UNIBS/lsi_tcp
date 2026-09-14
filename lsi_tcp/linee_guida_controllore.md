@@ -83,10 +83,104 @@ def computeControlAction(self, reference: float, measure: float, feedforward: fl
     # Applicare la saturazione
     u = self._apply_saturation(u)
     
-    # Gestire antiwindup
+    # Gestire antiwindup (richiamo, già visto in un corso precedente: vedi Antiwindup.md)
 
     return u
 ```
+
+> **Anti-windup**: lo avete già visto in un corso precedente. Trovate un
+> richiamo rapido, con lo schema di clamping applicato a questo stesso
+> pattern di codice, in [`Antiwindup.md`](Antiwindup.md).
+
+## 4bis. Procedete a piccoli passi: P → PI → PID
+
+Non scrivete un PID completo in un colpo solo: è più facile individuare un
+bug in un passo alla volta.
+
+1. Partite dal `PController` già fornito (§3 in [`PController.md`](PController.md)).
+2. Estendete a **PI** aggiungendo solo il termine integrale (§4 sopra) e
+   osservate l'effetto sull'errore a regime rispetto al solo P.
+3. Aggiungete l'**anti-windup** (vedi sopra) e verificate che la
+   sovraelongazione dopo un tratto in saturazione si riduca.
+4. Solo alla fine aggiungete il termine **derivativo** (filtrato, §5 sotto)
+   per ottenere il PID completo.
+
+Ogni passo è testabile da solo prima di scrivere quello successivo, invece
+di dover capire da dove arriva un bug in un PID scritto tutto insieme.
+
+## 5. Il filtro passa-basso (es. sul termine derivativo)
+
+Se il tuo controllore usa un termine derivativo (PID), sai già dai corsi di teoria
+che la derivata pura amplifica il rumore di misura. Il rimedio classico è
+**filtrare** il termine derivativo con un filtro passa-basso del primo ordine.
+
+**Importante**: il filtro NON va scritto come una classe separata. Va
+implementato **dentro la classe del controllore**, esattamente come fai per
+l'integratore: è un altro stato persistente, gestito con gli stessi strumenti
+(un attributo `self._...`, inizializzato in `starting` e aggiornato in
+`computeControlAction`).
+
+### Perché dentro la classe e non a parte?
+
+Un filtro esterno dovrebbe comunque "ricordare" un suo stato interno da un
+passo all'altro, quindi avresti bisogno di un'altra classe con lo stesso
+identico problema (dove salvo lo stato tra una chiamata e l'altra?) che stai
+già risolvendo per il controllore. Tenerlo nella stessa classe evita di dover
+sincronizzare due oggetti (es. chiamare `starting` su entrambi, passare
+parametri a entrambi) per un singolo controllore.
+
+### Esempio: derivata filtrata in un PID
+
+Il filtro passa-basso discreto (Eulero all'indietro) sul termine derivativo ha
+tipicamente la forma:
+
+$$
+d_{filt}[k] = d_{filt}[k-1] + \frac{T_s}{T_f + T_s}\big(d_{grezzo}[k] - d_{filt}[k-1]\big)
+$$
+
+dove `T_f` è la costante di tempo del filtro (parametro tarabile) e `T_s` è
+`sampling_period`.
+
+```python
+def __init__(self, sampling_period, Kp=1.0, Ki=0.0, Kd=0.0, Tf=1.0,
+             u_min=0.0, u_max=100.0):
+    super().__init__(sampling_period=sampling_period, u_min=u_min, u_max=u_max)
+    self._parameters.update({"Kp": Kp, "Ki": Ki, "Kd": Kd, "Tf": Tf})
+    self.Kp, self.Ki, self.Kd, self.Tf = Kp, Ki, Kd, Tf
+
+def starting(self, reference, measure, initial_u, feedforward):
+    # Stati persistenti: uno per l'integratore, uno per la derivata filtrata,
+    # uno per l'errore al passo precedente. Convivono nella stessa classe.
+    self._integratore = 0.0
+    self._d_filt = 0.0
+    self._error_prev = reference - measure
+
+def computeControlAction(self, reference, measure, feedforward):
+    error = reference - measure
+
+    # Derivata grezza (differenza in avanti sull'errore)
+    d_raw = (error - self._error_prev) / self.sampling_period
+
+    # Filtro passa-basso sulla derivata: self._d_filt è lo stato che
+    # "ricorda" il valore filtrato al passo precedente, esattamente come
+    # self._integratore ricorda la somma accumulata.
+    alpha = self.sampling_period / (self.Tf + self.sampling_period)
+    self._d_filt += alpha * (d_raw - self._d_filt)
+
+    self._integratore += self.Ki * error * self.sampling_period
+
+    u = self.Kp * error + self._integratore + self.Kd * self._d_filt + feedforward
+    u = self._apply_saturation(u)
+
+    self._error_prev = error
+    return u
+```
+
+Nota come `self._d_filt`, `self._integratore` e `self._error_prev` sono tre
+stati diversi, ognuno con il proprio significato, che convivono senza
+interferire tra loro: ognuno viene inizializzato in `starting` e aggiornato
+in `computeControlAction`, proprio come un blocco "memoria" (ritardo unitario)
+in Simulink.
 
 ## Conclusioni
 
@@ -95,3 +189,21 @@ Scrivere una nuova classe controllore è semplice seguendo questi passaggi:
 -   Aggiungi il costruttore per inizializzare i parametri.
 -   Implementa il metodo starting per inizializzare lo stato del controllore.
 -   Scrivi computeControlAction per calcolare l'azione di controllo.
+
+## Checklist di autovalutazione
+
+Prima di considerare il controllore pronto, verificate che:
+
+- [ ] la classe eredita da `BaseController`;
+- [ ] sono implementati sia `starting` che `computeControlAction`;
+- [ ] tutti i parametri specifici (`Kp`, `Ki`, `Kd`, `Tf`, ...) sono stati
+      aggiunti a `self._parameters` con `.update({...})` **e** impostati
+      come attributi (`self.Kp = Kp`, ecc.), così da comparire nella
+      dashboard e poter essere modificati con `setParameters(...)`;
+- [ ] la saturazione usa `self._apply_saturation(u)` invece di essere
+      reimplementata a mano;
+- [ ] ogni stato persistente (integratore, derivata filtrata, errore
+      precedente, ...) è inizializzato in `starting` e aggiornato in
+      `computeControlAction`, non dichiarato solo nel costruttore;
+- [ ] l'anti-windup è gestito (vedi [`Antiwindup.md`](Antiwindup.md)) se il
+      controllore ha un termine integrale.

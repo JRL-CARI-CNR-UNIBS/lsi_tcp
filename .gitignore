@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.csv
+# Il CSV di esempio del profilo di setpoint va invece tracciato (referenziato
+# da README e utils.build_setpoint_profile): eccezione alla regola *.csv sopra.
+!lsi_tcp/example.csv
 # --- Environment / virtualenv ---
 .env
 .venv

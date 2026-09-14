@@ -46,6 +46,8 @@ class ManualController(BaseController):
         feedforward: float
     ) -> None:
         """
-        All'avvio, imposta U=manual_control_action.
+        All'avvio, allinea l'azione manuale a initial_u (bumpless transfer):
+        tipicamente l'ultima azione calcolata dal controllore automatico
+        quando si passa da automatico a manuale.
         """
-        self.manual_control_action = self.manual_control_action
+        self.manual_control_action = initial_u

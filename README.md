@@ -81,9 +81,13 @@ tclab/
 │   ├── base_controller.py
 │   ├── proportional_controller.py
 │   ├── manual_controller.py
+│   ├── channel_runtime.py
+│   ├── dashboard_state.py
 │   ├── controllers_dashboard.py
 │   ├── setpoint_profile.py
 │   ├── utils.py
+│   ├── taratura.md
+│   ├── Antiwindup.md
 │   └── example.csv
 ├── pyproject.toml
 ├── requirements.txt
@@ -107,6 +111,13 @@ I file più importanti per il progetto sono:
 - `lsi_tcp/base_controller.py`, `proportional_controller.py`, `manual_controller.py`  
   Gerarchia di controllori SISO.
 
+- `lsi_tcp/channel_runtime.py` + `lsi_tcp/dashboard_state.py`  
+  Coordinano, per ciascun canale, i due controllori sempre istanziati
+  (`ManualController` + il vostro controllore automatico) e lo stato
+  condiviso con la dashboard (modalità manuale/automatico, potenza manuale,
+  setpoint). Non richiedono modifiche da parte vostra: sono usati
+  internamente da `utils.build_channels`.
+
 - `lsi_tcp/controllers_dashboard.py`  
   Dashboard Dash per il tuning dei controllori e il monitoraggio dei segnali.
 
@@ -114,7 +125,8 @@ I file più importanti per il progetto sono:
   Gestione di profili di setpoint letti da CSV (T1 e T2).
 
 - `lsi_tcp/utils.py`  
-  Utility di alto livello (`build_process`, `build_setpoint_profile`, `init_controllers`, `run_closed_loop`) usate negli esempi.
+  Utility di alto livello (`build_process`, `build_setpoint_profile`,
+  `build_channels`, `init_channels`, `run_closed_loop`) usate negli esempi.
 
 ---
 
@@ -280,7 +292,11 @@ c = ManualController(
 
 - è utile per:
   - prove in **anello aperto** (identificazione);
-  - confronti con il comportamento in automatico.
+  - confronti con il comportamento in automatico;
+  - il jog manuale dalla dashboard: **ogni canale ha sempre, contemporaneamente,
+    un `ManualController` e il vostro controllore automatico** (vedi §3.3 e
+    §3.5); un flag per canale decide quale dei due calcola `u` in un dato
+    istante, con bumpless transfer al cambio di modalità.
 
 ---
 
@@ -288,24 +304,34 @@ c = ManualController(
 
 Nel modulo `controllers_dashboard.py` c’è la classe **`ControllerDashboard`**, che crea una web app Dash/Plotly per:
 
-- visualizzare nel tempo:
-  - `T1`, `T2`;
-  - `U1`, `U2`;
-  - eventuali setpoint `SP1`, `SP2`;
-- impostare i parametri dei controllori (`Kp`, `manual_control_action`, limiti, ecc.).
+- visualizzare nel tempo `T1`, `T2`, `U1`, `U2` ed eventuali setpoint `SP1`, `SP2`;
+- passare da manuale ad automatico (e viceversa) **per canale**, con uno switch;
+- un campo numerico "adattivo" per canale: in manuale imposta la potenza
+  `U` [%], in automatico il setpoint [°C];
+- impostare i parametri del controllore attivo (`Kp`, `Ki`, ... o
+  `manual_control_action`) e, in simulazione, i parametri del modello
+  (`K1/tau1/L1`, `K2/tau2/L2`) direttamente dal browser, senza fermare il loop.
 
-Costruzione tipica:
+Per ogni canale la dashboard **non parla direttamente con le classi
+controllore**: legge/scrive uno stato condiviso in un `DashboardState` e
+mostra i parametri del controllore attivo esposto da un `ChannelRuntime`
+(che, nel loop di controllo, decide quale dei due controllori del canale —
+`ManualController` o il vostro automatico — calcola `u`).
+
+Non dovete costruire `ControllerDashboard` a mano: ci pensa
+`utils.run_closed_loop` a partire da quanto preparato con
+`utils.build_channels`/`init_channels` (§3.5). Costruzione tipica (uguale a
+quella usata internamente da `run_closed_loop`):
 
 ```python
 from lsi_tcp import ControllerDashboard
 
-controllers = {
-    "controller1": controller_T1,
-    "controller2": controller_T2,
-}
-
 dashboard = ControllerDashboard(
-    controllers=controllers,
+    runtimes,             # dict {"channel1": ChannelRuntime, "channel2": ChannelRuntime}
+    state,                # DashboardState condiviso
+    system=process,       # FakeTCLabSystem o TCLabSystem, opzionale
+    is_simulator=True,    # solo per il badge di stato
+    setpoint_from_profile=False,  # True in fase di validazione finale (§5.5)
     host="127.0.0.1",
     port=8051,
     debug=True,
@@ -329,7 +355,7 @@ dashboard.get_values(
 )
 ```
 
-> Se `SP1` o `SP2` sono `None`, le relative curve non vengono plottate.
+> Se `SP1` o `SP2` sono `None` (canale in manuale), le relative curve non vengono plottate.
 
 ---
 
@@ -406,23 +432,43 @@ setpoint_profile = build_setpoint_profile("lsi_tcp/example.csv")
 
 Restituisce un `SetpointProfile` con profilo a gradini.
 
-#### `init_controllers(controllers, process)`
+#### `build_channels(auto_controllers, sampling_period, u_min=0.0, u_max=100.0)`
 
 ```python
-from lsi_tcp import init_controllers
+from lsi_tcp import build_channels
 
-controllers = {
-    "controller1": controller_T1,
-    "controller2": controller_T2,
+auto_controllers = {
+    "channel1": controller_T1,   # il VOSTRO controllore (PController, PID, ...)
+    "channel2": controller_T2,
 }
 
-init_controllers(controllers, process)
+runtimes, state = build_channels(auto_controllers, sampling_period=SAMPLING_PERIOD)
+```
+
+- crea, per ciascun canale, un `ManualController` **sempre istanziato** (per
+  il jog manuale dalla dashboard) e lo affianca al vostro controllore
+  automatico in un `ChannelRuntime`;
+- crea un `DashboardState` condiviso da tutti i canali;
+- ritorna `(runtimes, state)`, entrambi da passare a `init_channels` e `run_closed_loop`.
+
+#### `init_channels(runtimes, state, process, initial_reference=20.0)`
+
+```python
+from lsi_tcp import init_channels
+
+init_channels(runtimes, state, process)
 ```
 
 - legge le misure iniziali (`T1`, `T2`) dal processo;
-- chiama `starting(...)` su `controller1` e `controller2` con riferimento iniziale (tipicamente 20°C) e `initial_u=0`.
+- chiama `starting(...)` su **entrambi** i controllori (manuale e
+  automatico) di ciascun canale, con riferimento iniziale (default 20°C) e
+  `initial_u=0`;
+- **va chiamata prima di `run_closed_loop`**: senza, lo stato interno del
+  vostro controllore (es. l'integratore di un PI) non verrebbe mai
+  inizializzato finché non avviene un primo cambio di modalità dalla
+  dashboard.
 
-#### `run_closed_loop(process, controllers, setpoint_profile, real_time_factor, max_duration=None)`
+#### `run_closed_loop(process, runtimes, state, real_time_factor, setpoint_profile=None, setpoint_from_profile=False, is_simulator=True, max_duration=None, sampling_period=SAMPLING_PERIOD)`
 
 Questa è la funzione che implementa il **loop di controllo completo**:
 
@@ -431,8 +477,8 @@ from lsi_tcp import run_closed_loop
 
 run_closed_loop(
     process=process,
-    controllers=controllers,
-    setpoint_profile=setpoint_profile,
+    runtimes=runtimes,
+    state=state,
     real_time_factor=real_time_factor,
     max_duration=5 * 3600.0,  # opzionale
 )
@@ -440,22 +486,27 @@ run_closed_loop(
 
 Al suo interno:
 
-1. Crea una `ControllerDashboard` e la avvia in background.
+1. Crea una `ControllerDashboard(runtimes, state, system=process, ...)` e la avvia in background.
 2. In un ciclo `while True`:
    - calcola `t_proc` (tempo di processo) in secondi usando `real_time_factor`;
    - se `max_duration` è specificata, termina quando `t_proc >= max_duration`;
-   - legge i setpoint: `ref1, ref2 = setpoint_profile.get_setpoints(t_proc)`;
+   - se `setpoint_from_profile=True` (fase di validazione, §5.5), sovrascrive
+     il setpoint condiviso con `setpoint_profile.get_setpoints(t_proc)`;
+     altrimenti il setpoint resta quello impostato a mano dallo studente
+     nella dashboard;
    - legge le misure dal processo: `measure1, measure2 = process.readProcessVariables()`;
-   - calcola le azioni di controllo:
+   - lascia decidere a ciascun `ChannelRuntime` quale dei suoi due
+     controllori calcola `u` (gestendo da solo il bumpless transfer):
 
      ```python
-     u1 = controllers["controller1"].computeControlAction(ref1, measure1, feedforward=0.0)
-     u2 = controllers["controller2"].computeControlAction(ref2, measure2, feedforward=0.0)
+     u1, sp1 = runtimes["channel1"].step(measure=measure1, feedforward=0.0)
+     u2, sp2 = runtimes["channel2"].step(measure=measure2, feedforward=0.0)
      ```
 
    - scrive i comandi: `process.writeControlCommands(u1=u1, u2=u2)`;
-   - aspetta `SAMPLING_PERIOD / real_time_factor` secondi;
-   - aggiorna la dashboard con `dashboard.get_values(...)`.
+   - aspetta `sampling_period / real_time_factor` secondi;
+   - aggiorna la dashboard con `dashboard.get_values(...)` (`sp1`/`sp2` sono
+     `None` per i canali in manuale, così la curva SP non viene plottata).
 
 3. In caso di `KeyboardInterrupt` o alla fine:
    - azzera le uscite;
@@ -471,52 +522,59 @@ Entrambi prevedono:
 
 - una costante `USE_FAKE` per scegliere fra simulazione e hardware reale;
 - un periodo di campionamento `SAMPLING_PERIOD`;
-- una funzione `build_controllers(sampling_period: float)` che costruisce il dizionario:
+- una funzione `build_controllers(sampling_period: float)` che costruisce il
+  dizionario dei **controllori automatici** (uno per canale — il
+  `ManualController` per il jog manuale viene aggiunto automaticamente da
+  `build_channels`, non va incluso qui):
 
   ```python
   controllers = {
-      "controller1": <controllore per U1>,
-      "controller2": <controllore per U2>,
+      "channel1": <controllore automatico per U1/T1>,
+      "channel2": <controllore automatico per U2/T2>,
   }
   ```
 
 - una funzione `main()` che:
   1. crea il processo con `build_process(USE_FAKE, real_time_factor=...)`;
-  2. crea i controllori con `build_controllers(SAMPLING_PERIOD)`;
-  3. chiama `init_controllers(controllers, process)`;
-  4. crea il profilo di setpoint con `build_setpoint_profile("lsi_tcp/example.csv")`;
-  5. lancia `run_closed_loop(...)`.
+  2. crea i controllori automatici con `build_controllers(SAMPLING_PERIOD)`;
+  3. chiama `build_channels(controllers, sampling_period=SAMPLING_PERIOD)` →
+     `(runtimes, state)`;
+  4. chiama `init_channels(runtimes, state, process)`;
+  5. (solo in fase di validazione finale, §5.5) crea il profilo di setpoint
+     con `build_setpoint_profile("lsi_tcp/example.csv")`;
+  6. lancia `run_closed_loop(process=process, runtimes=runtimes, state=state, ...)`.
 
 ### 4.1. `example_open_loop.py` – Prova in anello aperto
 
 Questo file è il punto di partenza per la **prova di identificazione**.
+Nessun controllore automatico esiste ancora: entrambi i canali usano un
+`ManualController` anche come "controllore automatico" (di fatto restano
+sempre manuali finché non collegate il vostro):
+
+```python
+def build_controllers(sampling_period: float):
+    c1 = ManualController(
+        sampling_period=sampling_period,
+        manual_control_action=0.0,
+        u_min=0.0,
+        u_max=100.0,
+    )
+    c2 = ManualController(
+        sampling_period=sampling_period,
+        manual_control_action=0.0,
+        u_min=0.0,
+        u_max=100.0,
+    )
+    return {"channel1": c1, "channel2": c2}
+```
 
 Suggerimento di utilizzo:
 
-- definite `controller1` come `ManualController`:
-
-  ```python
-  def build_controllers(sampling_period: float):
-      c1 = ManualController(
-          sampling_period=sampling_period,
-          manual_control_action=0.0,
-          u_min=0.0,
-          u_max=100.0,
-      )
-      c2 = ManualController(
-          sampling_period=sampling_period,
-          manual_control_action=0.0,
-          u_min=0.0,
-          u_max=100.0,
-      )
-      return {"controller1": c1, "controller2": c2}
-  ```
-
-- nel corso del test, variate `manual_control_action` (ad esempio tramite dashboard) per applicare uno o più **gradini** su U1 e/o U2;
+- nel corso del test, variate la potenza `U` di ciascun canale (campo
+  numerico "adattivo" nella dashboard, in modalità manuale) per applicare
+  uno o più **gradini** su U1 e/o U2;
 - lasciate che il sistema evolva finché la temperatura si assesta;
-- usate i CSV generati per l’identificazione.
-
-In alternativa, potete implementare direttamente in questo script una sequenza di gradini (senza dashboard) modificando `manual_control_action` nel tempo.
+- usate i CSV generati (`log_flag=True`) per l’identificazione.
 
 ### 4.2. `example_proportional.py` – Controllo P in anello chiuso
 
@@ -538,14 +596,19 @@ def build_controllers(sampling_period: float):
         u_min=0.0,
         u_max=100.0,
     )
-    return {"controller1": c1, "controller2": c2}
+    return {"channel1": c1, "channel2": c2}
 ```
 
 Dopo aver identificato i parametri FOPDT di T1 e T2, userete questo script per:
 
-- impostare i setpoint da tracciare (tramite `example.csv` o un vostro file CSV);
-- tarare `Kp_T1`, `Kp_T2` usando le regole di taratura discusse a lezione;
-- valutare la risposta in anello chiuso (sovraelongazione, tempo di assestamento, errore a regime, ecc.).
+- **taratura interattiva**: `SETPOINT_FROM_PROFILE = False` (default) — passate
+  ciascun canale in automatico dalla dashboard e impostate il setpoint a
+  mano, variando `Kp_T1`/`Kp_T2` (o gli altri parametri del vostro
+  controllore) live dal pannello parametri;
+- **validazione finale**: `SETPOINT_FROM_PROFILE = True` — il setpoint segue
+  `example.csv` (o un vostro file CSV con la stessa struttura), il campo
+  numerico si disabilita e valutate la risposta in anello chiuso
+  (sovraelongazione, tempo di assestamento, errore a regime, ecc.).
 
 ---
 
@@ -559,24 +622,14 @@ Creare una cartella di lavoro (non tclab)
 
 ### 5.2. Step 1 – Prova di identificazione (anello aperto)
 
-Creare il file CSV (esempio in `example.csv`):
+Script per il controllo manuale (da copiare nella cartella di lavoro,
+uguale a `example_open_loop.py` nella root del repo):
 
-```text
-t,T1,T2
-0,25,25
-300,40,25
-600,50,30
-900,50,50
-1200,30,30
-```
-
-e lo script per il controllo manuale (da copiare nella cartella di lavoro)
 ```python
 from lsi_tcp import TCLabSystem, FakeTCLabSystem
-from lsi_tcp import PController, ManualController
+from lsi_tcp import ManualController
 from lsi_tcp import ControllerDashboard
-from lsi_tcp import SetpointProfile
-from lsi_tcp import build_setpoint_profile, build_process, init_controllers, run_closed_loop
+from lsi_tcp import build_process, build_channels, init_channels, run_closed_loop
 import time
 
 # ==========================
@@ -588,7 +641,8 @@ SAMPLING_PERIOD = 1.0      # [s]
 
 def build_controllers(sampling_period: float):
     """
-    Crea i controllori e li restituisce in un dict.
+    Nessun controllore automatico ancora: entrambi i canali restano in
+    ManualController (la potenza U si imposta a mano dalla dashboard).
     """
     c1 = ManualController(
         sampling_period=sampling_period,
@@ -604,24 +658,24 @@ def build_controllers(sampling_period: float):
         u_max=100.0,
     )
 
-    controllers = {
-        "controller1": c1,
-        "controller2": c2,
+    return {
+        "channel1": c1,
+        "channel2": c2,
     }
-    return controllers
 
 
 def main():
     process, real_time_factor = build_process(USE_FAKE)
     controllers = build_controllers(SAMPLING_PERIOD)
-    init_controllers(controllers, process)
+    runtimes, state = build_channels(controllers, sampling_period=SAMPLING_PERIOD)
+    init_channels(runtimes, state, process)
 
-    setpoint_profile = build_setpoint_profile("example.csv")
     run_closed_loop(
         process=process,
-        controllers=controllers,
-        setpoint_profile=setpoint_profile,
+        runtimes=runtimes,
+        state=state,
         real_time_factor=real_time_factor,
+        is_simulator=USE_FAKE,
         max_duration=5*3600.0,
     )
 
@@ -648,27 +702,21 @@ if __name__ == "__main__":
 
 ### 5.3. Step 2 – Modellazione FOPDT dai CSV
 
-In un notebook Jupyter o in uno script Python separato:
+Questo step si svolge in **MATLAB**, non in Python: caricate il CSV
+prodotto dallo Step 1 (colonne `Time, T1, T2, U1, U2`) e applicate il metodo
+del 10%-90% già visto in un corso precedente (potete anche fare i conti a
+mano, senza script, se preferite).
 
-1. **Caricate il CSV**
+1. **Caricate il CSV** e costruite l'asse dei tempi in secondi (la colonna
+   `Time` è un timestamp simulato: convertitelo in secondi rispetto al primo
+   campione).
 
-   ```python
-   import pandas as pd
-
-   df = pd.read_csv("tclab_YYYYMMDDHHMMSS.csv")
-   ```
-
-2. **Costruite l’asse dei tempi in secondi**
-
-   - la colonna `Time` è un timestamp simulato;
-   - potete convertirlo in `datetime` e poi in secondi rispetto al primo campione.
-
-3. **Individuate il gradino**
+2. **Individuate il gradino**
 
    - verificate dove `U1` (o `U2`) cambia valore;
    - calcolate `U_initial` e `U_final`.
 
-4. **Stima dei parametri FOPDT**
+3. **Stima dei parametri FOPDT**
 
    Per ciascuna temperatura di interesse (es. T1 per un gradino su U1):
 
@@ -677,12 +725,12 @@ In un notebook Jupyter o in uno script Python separato:
 
      $$K =\frac{T_\infty - T_0}{U_\text{final} - U_\text{initial}}$$
    - $t_{10}$ tempo in cui si raggiunge il 10\% della variazione
-   - $t_{90}$ tempo in cui si raggiunge il 10\% della variazione
+   - $t_{90}$ tempo in cui si raggiunge il 90\% della variazione
    - Costante di tempo $\tau=\frac{t_{90}-t_{10}}{2.2}$.
    - tempo morto $L=t_{10}-0.1\tau$ 
    
    
-5. **Modello finale**
+4. **Modello finale**
 
    Ottenete per ciascun canale un modello:
 
@@ -708,56 +756,71 @@ Per poter modificare i parametri online aggiungeteli qui:
 ```
 
 Un esempio di script per lanciare il controllore è [qui](example_proportional.py).
-In particolare va modificata:
+In particolare va modificata `build_controllers` per restituire il VOSTRO
+controllore automatico (il `ManualController` per il jog manuale viene
+aggiunto da `build_channels`, non va incluso qui — vedi §3.5 e §4):
 ```python
 def build_controllers(sampling_period: float):
     """
-    Crea i controllori e li restituisce in un dict.
+    Crea i controllori automatici e li restituisce in un dict
+    {"channel1": ..., "channel2": ...}.
     """
     c1 = YourMagicController(
         sampling_period=sampling_period,
-        manual_control_action=0.0,
         u_min=0.0,
         u_max=100.0,
     )
 
     c2 = YourMagicController(
         sampling_period=sampling_period,
-        manual_control_action=0.0,
         u_min=0.0,
         u_max=100.0,
     )
 
-    controllers = {
-        "controller1": c1,
-        "controller2": c2,
+    return {
+        "channel1": c1,
+        "channel2": c2,
     }
-    return controllers
 ```
 
 ### 5.5. Step 3 – Taratura dei due anelli di controllo
 
 1. **Scelta della struttura di controllo**
 
-   - iniziate con lo sviluppo di controllore **PI(D)**;
-   - testatelo in simulazione
-   
+   - iniziate con lo sviluppo di controllore **PI(D)**, seguendo la
+     progressione **P → PI → PID** descritta in
+     [`linee_guida_controllore.md`](lsi_tcp/linee_guida_controllore.md#4bis-procedete-a-piccoli-passi-p--pi--pid);
+   - **prima di andare sul banco reale, validate SEMPRE la taratura in
+     simulazione**: configurate `FakeTCLabSystem` con i VOSTRI `K1/tau1/L1`
+     (o `K2/tau2/L2`) identificati allo Step 2, e usatelo come strumento di
+     debug del controllore prima di collegarvi all'hardware. È il workflow
+     standard in ambito industriale (si simula prima di toccare l'impianto)
+     ed è ripetibile a piacere, a differenza della prova sul banco reale.
+
 2. **Regola di taratura**
 
-   Usate i parametri FOPDT stimati e applicate una regola di taratura (Ziegler–Nichols, SIMC, AMIGO, ecc.) per determinare:
-
-   
+   Usate i parametri FOPDT stimati e applicate una regola di taratura
+   (Ziegler–Nichols, SIMC, AMIGO, ecc.) per determinare `Kp`, `Ti` (e `Td`
+   per un PID). Le formule chiuse delle tre regole sono raccolte in
+   [`taratura.md`](lsi_tcp/taratura.md); il calcolo di `Kp/Ti/Td` a partire
+   da `K/τ/L` fatelo in MATLAB.
 
 3. **Implementazione in `example_proportional.py`**
 
    - impostate i parametri dei due Controllori secondo la taratura;
-   - utilizzate il profilo di setpoint XXXX;
+   - con `SETPOINT_FROM_PROFILE = True` (vedi §4.2), il loop usa il profilo
+     di setpoint (`example.csv` o un vostro file CSV con la stessa
+     struttura, vedi §3.4) invece del setpoint impostato a mano;
    - eseguite il loop in anello chiuso.
 
 4. **Analisi delle prestazioni**
 
    - valutate tempo di assestamento, sovraelongazione, errore a regime;
-   - confrontate diversi valori dei paramtri;
+   - **ripetete la stessa prova (stesso profilo di setpoint) con 2-3
+     tarature diverse** (es. una regola vs un'altra, oppure una delle due
+     con `Kp` raddoppiato a mano) e confrontate i risultati: è il modo
+     migliore per vedere sul grafico il trade-off velocità di
+     risposta/sovraelongazione/robustezza di un PID;
    - discutete l’interazione tra i due canali (es. come un cambiamento di U1 influisce anche su T2).
 
 ---
