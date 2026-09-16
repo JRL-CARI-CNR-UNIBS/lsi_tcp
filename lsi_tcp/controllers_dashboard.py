@@ -8,7 +8,7 @@ import dash
 import dash_bootstrap_components as dbc
 import dash_daq as daq
 from dash import dcc, html
-from dash.dependencies import ALL, Input, Output, State
+from dash.dependencies import ALL, MATCH, Input, Output, State
 from dash.exceptions import PreventUpdate
 
 import plotly.graph_objs as go
@@ -114,11 +114,6 @@ class ControllerDashboard:
         self.u1_data = []
         self.u2_data = []
         self.max_points = 10000  # limite per evitare crescita infinita
-
-        # Stato per la stima (approssimata) della sovraelongazione: per
-        # canale, tiene traccia dell'ultimo setpoint visto e del picco di
-        # temperatura registrato da quando quel setpoint è stato impostato.
-        self._overshoot_tracker = {ch: {"setpoint": None, "peak": None} for ch in runtimes}
 
         # Crea app Dash con tema Bootstrap. suppress_callback_exceptions è
         # necessario perché il contenuto degli Offcanvas (parametri) viene
@@ -271,7 +266,6 @@ class ControllerDashboard:
                         [
                             dbc.Col(html.Div([html.Small("Errore corrente"), html.H5(id=f"kpi-error-{ch}", children="-")])),
                             dbc.Col(html.Div([html.Small("Parametri attivi"), html.Div(id=f"kpi-params-{ch}", children="-")])),
-                            dbc.Col(html.Div([html.Small("Sovraelong. stimata"), html.H5(id=f"kpi-overshoot-{ch}", children="-")])),
                         ],
                         className="mb-3",
                     ),
@@ -442,6 +436,20 @@ class ControllerDashboard:
     # ================================================================
 
     def _register_callbacks(self):
+        # Slider -> input numerico: aggiorna SOLO il campo numerico associato
+        # (stesso scope/param), che resta l'unica sorgente inviata a
+        # setParameters(). Il binding è mono-direzionale per evitare un
+        # ciclo di callback Dash.
+        @self.app.callback(
+            Output({"type": "param-input", "scope": MATCH, "param": MATCH}, "value"),
+            Input({"type": "param-slider", "scope": MATCH, "param": MATCH}, "value"),
+            prevent_initial_call=True,
+        )
+        def _slider_to_input(value):
+            if value is None:
+                raise PreventUpdate
+            return value
+
         # Pannelli parametri: uno per canale + eventualmente uno per il sistema
         for ch in self.runtimes:
             self._register_param_panel(ch)
@@ -512,7 +520,6 @@ class ControllerDashboard:
             Output(f"mode-badge-{ch}", "color"),
             Output(f"kpi-error-{ch}", "children"),
             Output(f"kpi-params-{ch}", "children"),
-            Output(f"kpi-overshoot-{ch}", "children"),
             Output(f"adaptive-input-{ch}", "value"),
             Input("interval-component", "n_intervals"),
         )
@@ -522,7 +529,7 @@ class ControllerDashboard:
             badge_text = "Automatico" if mode == "auto" else "Manuale"
             badge_color = "success" if mode == "auto" else "secondary"
 
-            error_text, overshoot_text = self._compute_kpis(ch)
+            error_text = self._compute_kpis(ch)
             params_text = ", ".join(
                 f"{k}={v:.3g}" if isinstance(v, (int, float)) else f"{k}={v}"
                 for k, v in runtime.active_controller.getParameters().items()
@@ -533,7 +540,7 @@ class ControllerDashboard:
             if mode == "auto" and self.setpoint_from_profile:
                 adaptive_value = self.state.get_setpoint(ch)
 
-            return badge_text, badge_color, error_text, params_text, overshoot_text, adaptive_value
+            return badge_text, badge_color, error_text, params_text, adaptive_value
 
     def _compute_kpis(self, ch: str):
         info = _CHANNEL_INFO[ch]
@@ -544,26 +551,12 @@ class ControllerDashboard:
             last_setpoint = setpoints[-1] if setpoints else None
 
         if last_measure is None:
-            return "-", "-"
+            return "-"
 
         if last_setpoint is None:
-            # Modalità manuale: niente errore/setpoint da mostrare
-            self._overshoot_tracker[ch] = {"setpoint": None, "peak": None}
-            return "manuale", "-"
+            return "manuale"
 
-        error_text = f"{last_setpoint - last_measure:+.2f} °C"
-
-        tracker = self._overshoot_tracker[ch]
-        if tracker["setpoint"] is None or abs(tracker["setpoint"] - last_setpoint) > 1e-9:
-            tracker["setpoint"] = last_setpoint
-            tracker["peak"] = last_measure
-        else:
-            tracker["peak"] = max(tracker["peak"], last_measure)
-
-        overshoot = tracker["peak"] - last_setpoint
-        overshoot_text = f"{max(0.0, overshoot):.2f} °C (stima, finestra corrente)"
-
-        return error_text, overshoot_text
+        return f"{last_setpoint - last_measure:+.2f} °C"
 
     def _register_pause_callback(self):
         @self.app.callback(
