@@ -54,7 +54,7 @@ processi FOPDT con rapporto `L/τ` non piccolo (tipico del TCLab).
    `Ki = Kp / Ti` (e `Kd = Kp * Td` per un PID) tramite `setParameters(...)`.
 4. **Prima di andare sul banco reale, validate la taratura in simulazione**
    con `FakeTCLabSystem` configurato con i VOSTRI `K1/tau1/L1` (o
-   `K2/tau2/L2`) identificati — vedi §5.5 del README.
+   `K2/tau2/L2`) identificati — vedi [§5.5 della guida al progetto](guida_progetto.md#55-step-3--taratura-dei-due-anelli-di-controllo).
 
 Confrontare la stessa prova con 2-3 regole diverse (o con un `Kp` tarato
 manualmente a partire da una di queste) è il modo più diretto per vedere sul

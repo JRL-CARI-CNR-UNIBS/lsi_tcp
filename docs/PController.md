@@ -114,7 +114,7 @@ Se sei abituato a lavorare in MATLAB, ecco alcune delle principali differenze:
 
 
 ### Commento del Codice riga per riga
-Il [codice](PController.py) del propozionale è composto da:
+Il [codice](../lsi_tcp/proportional_controller.py) del propozionale è composto da:
 
 
 ```python
