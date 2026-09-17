@@ -22,8 +22,8 @@ tipicamente non trascurabile.
 | Controllore | Kp | Ti | Td |
 |---|---|---|---|
 | P | $\dfrac{\tau}{K L}$ | — | — |
-| PI | $\dfrac{0.9\,\tau}{K L}$ | $3.33\,L$ | — |
-| PID | $\dfrac{1.2\,\tau}{K L}$ | $2\,L$ | $0.5\,L$ |
+| PI | $\dfrac{0.9 \tau}{K L}$ | $3.33 L$ | — |
+| PID | $\dfrac{1.2\tau}{K L}$ | $2L$ | $0.5 L$ |
 
 ## SIMC (Skogestad, IMC-based)
 
@@ -43,8 +43,8 @@ processi FOPDT con rapporto `L/τ` non piccolo (tipico del TCLab).
 
 | Controllore | Kp | Ti | Td |
 |---|---|---|---|
-| PI | $\dfrac{1}{K}\left(0.15+0.35\dfrac{\tau}{\,L\,}-\dfrac{\tau^2}{(\tau+L)^2}\right)$ | $0.35\,L+\dfrac{13\,\tau L^2}{\tau^2+12\,\tau L+7\,L^2}$ | — |
-| PID | $\dfrac{1}{K}\left(0.2+0.45\dfrac{\tau}{L}\right)$ | $\dfrac{0.4\,L+0.8\,\tau}{L+0.1\,\tau}\,L$ | $\dfrac{0.5\,L\,\tau}{0.3\,L+\tau}$ |
+| PI | $\dfrac{1}{K}\left(0.15+0.35\dfrac{\tau}{L}-\dfrac{\tau^2}{(\tau+L)^2}\right)$ | $0.35L+\dfrac{13\tau L^2}{\tau^2+12\tau L+7L^2}$ | — |
+| PID | $\dfrac{1}{K}\left(0.2+0.45\dfrac{\tau}{L}\right)$ | $\dfrac{0.4L+0.8\tau}{L+0.1\tau}L$ | $\dfrac{0.5L\tau}{0.3L+\tau}$ |
 
 ## Come usarle
 
