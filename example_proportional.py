@@ -8,7 +8,7 @@ import time
 # Configurazione generale
 # ==========================
 
-USE_FAKE = False            # True -> usa FakeTCLabSystem, False -> hardware reale
+USE_FAKE = True            # True -> usa FakeTCLabSystem, False -> hardware reale
 SAMPLING_PERIOD = 1.0      # [s]
 
 # False -> taratura interattiva: il setpoint di ciascun canale in automatico
