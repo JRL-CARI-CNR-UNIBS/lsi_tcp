@@ -17,11 +17,6 @@ Il pacchetto espone:
 - una dashboard web (Dash/Plotly) per il monitoraggio e il tuning in tempo reale;
 - utilità per gestire profili di setpoint e per orchestrare il loop di controllo.
 
-Installazione rapida:
-```bash
-pip install "git+https://github.com/JRL-CARI-CNR-UNIBS/lsi_tcp.git#master"
-```
-
 ## Documentazione
 
 La documentazione completa è nella cartella [`docs/`](docs/):
@@ -29,7 +24,7 @@ La documentazione completa è nella cartella [`docs/`](docs/):
 - [1. Installazione](docs/installazione.md)
 - [2. Struttura del repository](docs/struttura.md)
 - [3. Concetti di base del pacchetto](docs/concetti.md) (`TCLabSystem`/`FakeTCLabSystem`, controllori SISO, dashboard, profili di setpoint, utility)
-- [4. Gli esempi `example_open_loop.py` ed `example_proportional.py`](docs/esempi.md)
+- [4. Codice esempio  `example_proportional.py`](docs/esempi.md)
 - [5. Guida allo sviluppo del progetto degli studenti](docs/guida_progetto.md)
 - [6. Suggerimenti per la relazione finale](docs/relazione.md)
 

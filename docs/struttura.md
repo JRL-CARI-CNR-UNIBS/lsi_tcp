@@ -4,7 +4,6 @@ All’interno dello zip / repo troverete indicativamente:
 
 ```text
 tclab/
-├── example_open_loop.py
 ├── example_proportional.py
 ├── lsi_tcp/
 │   ├── __init__.py
@@ -28,9 +27,6 @@ tclab/
 ```
 
 I file più importanti per il progetto sono:
-
-- `example_open_loop.py`
-  Esempio di struttura di script per prove in **anello aperto** (identificazione) e logging su CSV.
 
 - `example_proportional.py`
   Esempio di struttura di script per controllo **proporzionale** in **anello chiuso**.
