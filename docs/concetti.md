@@ -145,16 +145,13 @@ from lsi_tcp import PIDController
 
 c = PIDController(
     sampling_period=1.0,
-    Kp=1.0,
-    Ki=0.0,
-    Kd=0.0,
-    Tf=1.0,
+    # METTI QUI I PARAMETRI
     u_min=0.0,
     u_max=100.0,
 )
 ```
 
-Il costruttore è già pronto (parametri `Kp`, `Ki`, `Kd`, `Tf`); `starting` e
+Il costruttore è da completare con i parametri del controllore necessari; `starting` e
 `computeControlAction` contengono solo commenti `# inserisci il tuo codice
 qui` e vanno implementati da voi seguendo
 [`linee_guida_controllore.md`](linee_guida_controllore.md) — finché
