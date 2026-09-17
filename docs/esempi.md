@@ -5,7 +5,7 @@ Gli script nella root del progetto (`../example_open_loop.py`,
 
 Entrambi prevedono:
 
-- una costante `USE_FAKE` per scegliere fra simulazione e hardware reale;
+- un parametro `--fake` per scegliere fra simulazione e hardware reale;
 - un periodo di campionamento `SAMPLING_PERIOD`;
 - una funzione `build_controllers(sampling_period: float)` che costruisce il
   dizionario dei **controllori automatici** (uno per canale — il
@@ -58,12 +58,12 @@ Suggerimento di utilizzo:
 - nel corso del test, variate la potenza `U` di ciascun canale (campo
   numerico "adattivo" nella dashboard, in modalità manuale) per applicare
   uno o più **gradini** su U1 e/o U2;
-- lasciate che il sistema evolva finché la temperatura si assesta;
+- ogni prova a scalino deve partire da un valore di temperatura assestato e dovete lasciate che il sistema evolva finché la temperatura si assesta;
 - usate i CSV generati (`log_flag=True`) per l’identificazione.
 
 ## 4.2. `example_proportional.py` – Controllo P in anello chiuso
 
-Questo file è il punto di partenza per il **controllo automatico** con i modelli FOPDT identificati.
+Questo file è il **punto di partenza** per il controllo automatico con i modelli FOPDT identificati.
 
 Suggerimento di utilizzo:
 
@@ -86,11 +86,7 @@ def build_controllers(sampling_period: float):
 
 Dopo aver identificato i parametri FOPDT di T1 e T2, userete questo script per:
 
-- **taratura interattiva**: `SETPOINT_FROM_PROFILE = False` (default) — passate
-  ciascun canale in automatico dalla dashboard e impostate il setpoint a
-  mano, variando `Kp_T1`/`Kp_T2` (o gli altri parametri del vostro
+- passate ciascun canale in automatico dalla dashboard e impostate il setpoint a
+  mano, variando `Kp_T1`/`Kp_T2` (e gli altri parametri del vostro
   controllore) live dal pannello parametri;
-- **validazione finale**: `SETPOINT_FROM_PROFILE = True` — il setpoint segue
-  `example.csv` (o un vostro file CSV con la stessa struttura), il campo
-  numerico si disabilita e valutate la risposta in anello chiuso
-  (sovraelongazione, tempo di assestamento, errore a regime, ecc.).
+- potete usare il codice in modalità `--fake` per simulare il comportamento della scheda. In quel caso impostate i parametri del simulatore clickando su **Modifica parametri simulatore** impostando i valori di guadagno, costante di tempo e ritardo identificati.

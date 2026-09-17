@@ -21,8 +21,7 @@ tra il valore di riferimento (setpoint) e il valore misurato.
   - \(y\) è l'uscita misurata (variabile di processo).
 
 - **Feedforward**: Un'azione di controllo aggiuntiva che viene applicata direttamente, 
-- senza considerare l'errore. È spesso utilizzata nei sistemi in cui si dispone di un
-- modello per prevedere l'azione di controllo da applicare in anticipo.
+- senza considerare l'errore. È spesso utilizzata nei sistemi in cui si dispone di un modello per prevedere l'azione di controllo da applicare in anticipo.
 
 ## Componente Principali del Codice
 
