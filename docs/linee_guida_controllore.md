@@ -2,6 +2,12 @@
 
 Questa guida ti aiuterà a scrivere una nuova classe per un controllore in Python, simile al `PController`. Il controllore che scriverai può essere un tipo diverso (come un `PIController`, `PIDController` o altro) ma seguirà una struttura di base comune.
 
+> Per il PID trovate già lo scheletro pronto in
+> [`lsi_tcp/pid_controller.py`](../lsi_tcp/pid_controller.py): costruttore
+> già scritto (parametri `Kp`, `Ki`, `Kd`, `Tf`), `starting` e
+> `computeControlAction` da completare (cercate i commenti `# inserisci il
+> tuo codice qui`). Gli esempi di questa pagina vi guidano nel riempirli.
+
 ## 1. Creare la Classe Base
 
 Se la tua classe controllore eredita da una classe base, come `BaseController`, 
@@ -45,12 +51,12 @@ def __init__(self, sampling_period: float, Kp: float = 1.0, Ki: float = 0.0, u_m
 Il metodo starting viene chiamato per inizializzare il controllore. In un controllore come il PController, non c'è nulla da inizializzare, ma potresti dover inizializzare uno stato interno (ad esempio, un integratore in un PIController o PIDController).
 Come fare:
 - Se il controllore ha variabili interne (ad esempio, il termine integratore in un PIController o PIDController), devi inizializzarle nel metodo starting.
-- Puoi usare reference, measure, initial_u, e feedforward come parametri per inizializzare lo stato del controllore.
+- Puoi usare reference, measure e initial_u come parametri per inizializzare lo stato del controllore.
 
 Esempio:
 
 ```python
-def starting(self, reference: float, measure: float, initial_u: float, feedforward: float) -> None:
+def starting(self, reference: float, measure: float, initial_u: float) -> None:
     self.integratore = 0.0  # Se hai bisogno di un integratore
     # Altri stati o variabili (quelle che in Simulink sarebbero delle memorie (ritardi unitari)
     return
@@ -62,12 +68,11 @@ Questo è il metodo che calcola l'azione di controllo. In un controllore proporz
 Come fare:
 - Calcola l'errore come la differenza tra il riferimento (reference) e la misura (measure).
 - Se è un PIController o PIDController, aggiorna lo stato integrale o derivativo.
-- Combina il feedback e il feedforward per determinare l'uscita di controllo.
 - Usa il metodo `_apply_saturation` per applicare la saturazione ai valori di controllo.
 
 Esempio per un PIController:
 ```python
-def computeControlAction(self, reference: float, measure: float, feedforward: float) -> float:
+def computeControlAction(self, reference: float, measure: float) -> float:
     # Calcolare l'errore
     error = reference - measure
 
@@ -77,8 +82,8 @@ def computeControlAction(self, reference: float, measure: float, feedforward: fl
     # Calcolare l'azione integrale
     self.integratore += self.Ki * error * self.sampling_period
     
-    # Sommare il feedback, l'integrale e il feedforward
-    u = u_fb + self.integratore + feedforward
+    # Sommare il feedback e l'integrale
+    u = u_fb + self.integratore
 
     # Applicare la saturazione
     u = self._apply_saturation(u)
@@ -148,14 +153,14 @@ def __init__(self, sampling_period, Kp=1.0, Ki=0.0, Kd=0.0, Tf=1.0,
     self._parameters.update({"Kp": Kp, "Ki": Ki, "Kd": Kd, "Tf": Tf})
     self.Kp, self.Ki, self.Kd, self.Tf = Kp, Ki, Kd, Tf
 
-def starting(self, reference, measure, initial_u, feedforward):
+def starting(self, reference, measure, initial_u):
     # Stati persistenti: uno per l'integratore, uno per la derivata filtrata,
     # uno per l'errore al passo precedente. Convivono nella stessa classe.
     self._integratore = 0.0
     self._d_filt = 0.0
     self._error_prev = reference - measure
 
-def computeControlAction(self, reference, measure, feedforward):
+def computeControlAction(self, reference, measure):
     error = reference - measure
 
     # Derivata grezza (differenza in avanti sull'errore)
@@ -169,7 +174,7 @@ def computeControlAction(self, reference, measure, feedforward):
 
     self._integratore += self.Ki * error * self.sampling_period
 
-    u = self.Kp * error + self._integratore + self.Kd * self._d_filt + feedforward
+    u = self.Kp * error + self._integratore + self.Kd * self._d_filt
     u = self._apply_saturation(u)
 
     self._error_prev = error
@@ -186,9 +191,9 @@ in Simulink.
 
 Scrivere una nuova classe controllore è semplice seguendo questi passaggi:
 - Eredita da una classe base.
--   Aggiungi il costruttore per inizializzare i parametri.
--   Implementa il metodo starting per inizializzare lo stato del controllore.
--   Scrivi computeControlAction per calcolare l'azione di controllo.
+- Aggiungi il costruttore per inizializzare i parametri.
+- Implementa il metodo starting per inizializzare lo stato del controllore.
+- Scrivi computeControlAction per calcolare l'azione di controllo.
 
 ## Checklist di autovalutazione
 

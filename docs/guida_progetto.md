@@ -20,8 +20,7 @@ Di seguito una **roadmap pratica** che collega il codice del repository ai tre s
 Script per il controllo manuale:
 
 1. **Preparazione del sistema**
-   - scegliete se lavorare in simulazione (`python example_proportional.py --fake`) o con l’hardware reale (`python example_proportional.py`);
-
+   - scegliete se lavorare in simulazione (`python example_open_loop.py --fake`) o con l’hardware reale (`python example_open_loop.py`);
 
 2. **Esecuzione della prova**
    - partite con `U1 = U2 = 0%` e lasciate stabilizzare le temperature;
@@ -122,21 +121,20 @@ grid on
    da usare nella fase di taratura.
 
 ## 5.4. Step 3 – Implementare il Controllore
-Per Implementare il controllore PID potete partire dall'implementazione del [proporzionale](../lsi_tcp/proportional_controller.py), copiandolo in un nuovo file chiamato pid_controller.py nella cartella  `lsi_tcp`.
-Rinominare la classe in **PIDController**
 
-Aggiungrre a [__init__.py](lsi_tcp/__init__.py) la riga:
-```python
-from .pid_controller import PIDController
-```
-e aggiungere a `__all__` il nome del nuovo controllore  _"PIDController"_
+Il file [`lsi_tcp/pid_controller.py`](../lsi_tcp/pid_controller.py) contiene
+già la classe **`PIDController`** (già importata ed esportata da
+`lsi_tcp/__init__.py`, non serve toccarlo) con il costruttore pronto
+(parametri `Kp`, `Ki`, `Kd`, `Tf`) ma con `starting` e
+`computeControlAction` da completare — cercate i commenti `# inserisci il
+tuo codice qui`.
 
-
-La descrizione dettagliata del controllore proporzionale si trova [qui](PController.md)
+La descrizione dettagliata del controllore proporzionale (da cui partire) si trova [qui](PController.md)
 
 Le linee guida per implementare il codice sono [qui](linee_guida_controllore.md)
 
-Per poter modificare i parametri online aggiungeteli qui:
+Se avete bisogno di ulteriori parametri tarabili oltre a `Kp`/`Ki`/`Kd`/`Tf`,
+aggiungeteli allo stesso modo nel costruttore:
 ```python
         # Aggiungi i parametri specifici del controllore
         self._parameters.update({
@@ -144,36 +142,11 @@ Per poter modificare i parametri online aggiungeteli qui:
         })
 ```
 
-Un esempio di script per lanciare il controllore è [qui](../example_proportional.py), createne una copia che lanci il vostro controllore.
-In particolare va modificata `build_controllers` per restituire il VOSTRO
-controllore automatico (il `ManualController` per il jog manuale viene
-aggiunto da `build_channels`, non va incluso qui — vedi [§3.5](concetti.md#35-utility-di-alto-livello-utilspy) e [§4](esempi.md)):
-```python
-from lsi_tcp import import PIDController
-def build_controllers(sampling_period: float):
-    """
-    Crea i controllori automatici e li restituisce in un dict
-    {"channel1": ..., "channel2": ...}.
-    """
-    c1 = PIDController(
-        sampling_period=sampling_period,
-        METTETE QUI I VOSTRI PARAMETRI IN INGRESSO
-        u_min=0.0,
-        u_max=100.0,
-    )
-
-    c2 = PIDController(
-        sampling_period=sampling_period,
-        METTETE QUI I VOSTRI PARAMETRI IN INGRESSO
-        u_min=0.0,
-        u_max=100.0,
-    )
-
-    return {
-        "channel1": c1,
-        "channel2": c2,
-    }
-```
+Lo script per lanciare il controllore è già pronto in
+[`example_pid_controller.py`](../example_pid_controller.py) (stessa
+struttura di `example_proportional.py`, vedi [§4](esempi.md)): non dovete
+crearne una copia, basta tarare `Kp`/`Ki`/`Kd`/`Tf` in `build_controllers`
+una volta completata la classe.
 
 ## 5.5. Step 3 – Taratura dei due anelli di controllo
 
@@ -197,18 +170,19 @@ def build_controllers(sampling_period: float):
    [`taratura.md`](taratura.md); il calcolo di `Kp/Ti/Td` a partire
    da `K/τ/L` fatelo in MATLAB.
 
-3. **Implementazione in `example_proportional.py`**
+3. **Implementazione nello script di esempio**
 
+   - usate `example_proportional.py` per il solo P, `example_pid_controller.py`
+     per PI/PID (vedi [§4](esempi.md));
    - impostate i parametri dei due Controllori secondo la taratura;
-   - con `SETPOINT_FROM_PROFILE = True` (vedi [§4.2](esempi.md#42-example_proportionalpy--controllo-p-in-anello-chiuso)), il loop usa il profilo
-     di setpoint (`example.csv` o un vostro file CSV con la stessa
-     struttura, vedi [§3.4](concetti.md#34-profili-di-setpoint-setpointprofile)) invece del setpoint impostato a mano;
+   - passate ciascun canale in automatico dalla dashboard e impostate il
+     setpoint a mano;
    - eseguite il loop in anello chiuso.
 
 4. **Analisi delle prestazioni**
 
    - valutate tempo di assestamento, sovraelongazione, errore a regime;
-   - **ripetete la stessa prova (stesso profilo di setpoint) con 2-3
+   - **ripetete la stessa prova (stesso setpoint impostato a mano) con 2-3
      tarature diverse** (es. una regola vs un'altra, oppure una delle due
      con `Kp` raddoppiato a mano) e confrontate i risultati: è il modo
      migliore per vedere sul grafico il trade-off velocità di

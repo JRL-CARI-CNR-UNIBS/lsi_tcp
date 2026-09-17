@@ -95,8 +95,8 @@ Per l’identificazione FOPDT userete proprio questi CSV.
 
 Nel modulo `base_controller.py` è definita la classe astratta **`BaseController`**, che stabilisce l’interfaccia comune:
 
-- `computeControlAction(reference, measure, feedforward) -> float`
-- `starting(reference, measure, initial_u, feedforward) -> None`
+- `computeControlAction(reference, measure) -> float`
+- `starting(reference, measure, initial_u) -> None`
 - `getListOfParameters() -> List[str]`
 - `setParameters(params: Dict[str, Any]) -> None`
 - `getParameters() -> Dict[str, Any]`
@@ -124,7 +124,7 @@ c = PController(
 Implementa:
 
 - errore: `e = reference - measure`;
-- azione: `u = Kp * e + feedforward`;
+- azione: `u = Kp * e`;
 - saturazione con `u_min`/`u_max`.
 
 I parametri esposti (tipici) sono:
@@ -132,10 +132,36 @@ I parametri esposti (tipici) sono:
 - `Kp` (guadagno proporzionale),
 - eventuali limiti `u_min`, `u_max`.
 
-È il controllore da cui partire (in un file diverso nella vostra cartella) per l'implementazione
-del controllore PID. Descrizione dettagliata: [`PController.md`](PController.md).
+È il controllore da cui partire per l'implementazione del controllore PID
+(vedi sotto). Descrizione dettagliata: [`PController.md`](PController.md).
 
-### 3.2.2. `ManualController`
+### 3.2.2. `PIDController` (da completare)
+
+Scheletro definito in `pid_controller.py`, già importato in
+`lsi_tcp/__init__.py`:
+
+```python
+from lsi_tcp import PIDController
+
+c = PIDController(
+    sampling_period=1.0,
+    Kp=1.0,
+    Ki=0.0,
+    Kd=0.0,
+    Tf=1.0,
+    u_min=0.0,
+    u_max=100.0,
+)
+```
+
+Il costruttore è già pronto (parametri `Kp`, `Ki`, `Kd`, `Tf`); `starting` e
+`computeControlAction` contengono solo commenti `# inserisci il tuo codice
+qui` e vanno implementati da voi seguendo
+[`linee_guida_controllore.md`](linee_guida_controllore.md) — finché
+`computeControlAction` non è completato, chiamarlo solleva
+`NotImplementedError`.
+
+### 3.2.3. `ManualController`
 
 Definito in `manual_controller.py`, è un controllore puramente manuale:
 
@@ -156,7 +182,7 @@ c = ManualController(
   u = manual_control_action
   ```
 
-  indipendentemente da `reference`, `measure`, `feedforward`;
+  indipendentemente da `reference`, `measure`;
 
 - è utile per:
   - prove in **anello aperto** (identificazione);
@@ -199,7 +225,7 @@ dashboard = ControllerDashboard(
     state,                # DashboardState condiviso
     system=process,       # FakeTCLabSystem o TCLabSystem, opzionale
     is_simulator=True,    # solo per il badge di stato
-    setpoint_from_profile=False,  # True in fase di validazione finale (§5.5)
+    setpoint_from_profile=False,  # True per far seguire il setpoint da un SetpointProfile (§3.4) invece che dalla dashboard
     host="127.0.0.1",
     port=8051,
     debug=True,
@@ -358,17 +384,17 @@ Al suo interno:
 2. In un ciclo `while True`:
    - calcola `t_proc` (tempo di processo) in secondi usando `real_time_factor`;
    - se `max_duration` è specificata, termina quando `t_proc >= max_duration`;
-   - se `setpoint_from_profile=True` (fase di validazione, §5.5), sovrascrive
-     il setpoint condiviso con `setpoint_profile.get_setpoints(t_proc)`;
-     altrimenti il setpoint resta quello impostato a mano dallo studente
-     nella dashboard;
+   - se `setpoint_from_profile=True`, sovrascrive il setpoint condiviso con
+     `setpoint_profile.get_setpoints(t_proc)`; altrimenti il setpoint resta
+     quello impostato a mano dallo studente nella dashboard (workflow
+     seguito negli esempi, §4);
    - legge le misure dal processo: `measure1, measure2 = process.readProcessVariables()`;
    - lascia decidere a ciascun `ChannelRuntime` quale dei suoi due
      controllori calcola `u` (gestendo da solo il bumpless transfer):
 
      ```python
-     u1, sp1 = runtimes["channel1"].step(measure=measure1, feedforward=0.0)
-     u2, sp2 = runtimes["channel2"].step(measure=measure2, feedforward=0.0)
+     u1, sp1 = runtimes["channel1"].step(measure=measure1)
+     u2, sp2 = runtimes["channel2"].step(measure=measure2)
      ```
 
    - scrive i comandi: `process.writeControlCommands(u1=u1, u2=u2)`;

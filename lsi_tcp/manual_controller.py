@@ -6,7 +6,7 @@ class ManualController(BaseController):
     """
     Controllore manuale: l'azione di controllo è semplicemente
         u = manual_control_action
-    indipendentemente da reference, measure e feedforward.
+    indipendentemente da reference e measure.
     """
 
     def __init__(
@@ -29,11 +29,10 @@ class ManualController(BaseController):
         self,
         reference: float,
         measure: float,
-        feedforward: float
     ) -> float:
         """
         Ritorna semplicemente u = manual_control_action (con saturazione).
-        I parametri reference, measure, feedforward sono ignorati.
+        I parametri reference, measure sono ignorati.
         """
         u = self.manual_control_action
         return self._apply_saturation(u)
@@ -43,7 +42,6 @@ class ManualController(BaseController):
         reference: float,
         measure: float,
         initial_u: float,
-        feedforward: float
     ) -> None:
         """
         All'avvio, allinea l'azione manuale a initial_u (bumpless transfer):

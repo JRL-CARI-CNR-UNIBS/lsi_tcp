@@ -59,7 +59,6 @@ class ChannelRuntime:
                 reference=setpoint,
                 measure=measure,
                 initial_u=self._last_auto_u,
-                feedforward=0.0,
             )
         else:
             # manuale -> auto: riparte dal setpoint appena impostato e dalla misura corrente
@@ -67,12 +66,11 @@ class ChannelRuntime:
                 reference=setpoint,
                 measure=measure,
                 initial_u=self.manual_controller.manual_control_action,
-                feedforward=0.0,
             )
 
         self._mode = new_mode
 
-    def step(self, measure: float, feedforward: float = 0.0):
+    def step(self, measure: float):
         """
         Da chiamare una volta per ciclo di controllo.
 
@@ -87,12 +85,12 @@ class ChannelRuntime:
         if self._mode == "manual":
             self.manual_controller.setParameters({"manual_control_action": manual_u})
             u = self.manual_controller.computeControlAction(
-                reference=setpoint, measure=measure, feedforward=feedforward
+                reference=setpoint, measure=measure
             )
             return u, None
 
         u = self.auto_controller.computeControlAction(
-            reference=setpoint, measure=measure, feedforward=feedforward
+            reference=setpoint, measure=measure
         )
         self._last_auto_u = u
         return u, setpoint

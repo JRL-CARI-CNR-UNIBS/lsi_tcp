@@ -28,11 +28,11 @@ l'integratore se il controllore è già saturo e l'errore lo spingerebbe
 ulteriormente in saturazione**.
 
 ```python
-def computeControlAction(self, reference, measure, feedforward):
+def computeControlAction(self, reference, measure):
     error = reference - measure
     u_fb = self.Kp * error
 
-    u_unsaturated = u_fb + self.integratore + feedforward
+    u_unsaturated = u_fb + self.integratore
     u = self._apply_saturation(u_unsaturated)
 
     # Aggiorna l'integratore SOLO se non siamo in saturazione, oppure se

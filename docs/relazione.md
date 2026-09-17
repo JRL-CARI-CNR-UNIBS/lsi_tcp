@@ -11,7 +11,7 @@ Nella relazione di progetto è consigliabile includere:
    - grafici di T1, T2, U1, U2 nel tempo.
 
 3. **Modellazione FOPDT**
-   - procedura adottata per la stima di K, τ, θ;
+   - procedura adottata per la stima di K, τ, L;
    - confronto grafico tra dati sperimentali e modello FOPDT.
 
 4. **Progetto dei controllori**

@@ -13,7 +13,7 @@ L’obiettivo principale è supportare il progetto degli studenti che prevede tr
 Il pacchetto espone:
 
 - classi per gestire il banco reale (`TCLabSystem`) e un modello simulato (`FakeTCLabSystem`);
-- una gerarchia di controllori SISO (`BaseController`, `PController`, `ManualController`);
+- una gerarchia di controllori SISO (`BaseController`, `PController`, `PIDController` da completare, `ManualController`);
 - una dashboard web (Dash/Plotly) per il monitoraggio e il tuning in tempo reale;
 - utilità per gestire profili di setpoint e per orchestrare il loop di controllo.
 
@@ -24,7 +24,7 @@ La documentazione completa è nella cartella [`docs/`](docs/):
 - [1. Installazione](docs/installazione.md)
 - [2. Struttura del repository](docs/struttura.md)
 - [3. Concetti di base del pacchetto](docs/concetti.md) (`TCLabSystem`/`FakeTCLabSystem`, controllori SISO, dashboard, profili di setpoint, utility)
-- [4. Codice esempio  `example_proportional.py`](docs/esempi.md)
+- [4. Codice esempio: `example_open_loop.py`, `example_proportional.py`, `example_pid_controller.py`](docs/esempi.md)
 - [5. Guida allo sviluppo del progetto degli studenti](docs/guida_progetto.md)
 - [6. Suggerimenti per la relazione finale](docs/relazione.md)
 

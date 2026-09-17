@@ -2,13 +2,13 @@ from lsi_tcp import TCLabSystem, FakeTCLabSystem
 from lsi_tcp import ManualController
 from lsi_tcp import ControllerDashboard
 from lsi_tcp import build_process, build_channels, init_channels, run_closed_loop
+import argparse
 import time
 
 # ==========================
 # Configurazione generale
 # ==========================
 
-USE_FAKE = False            # True -> usa FakeTCLabSystem, False -> hardware reale
 SAMPLING_PERIOD = 1.0      # [s]
 
 def build_controllers(sampling_period: float):
@@ -38,8 +38,21 @@ def build_controllers(sampling_period: float):
     }
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Esempio anello aperto (controllo manuale)")
+    parser.add_argument(
+        "--fake",
+        action="store_true",
+        help="Usa FakeTCLabSystem invece dell'hardware reale",
+    )
+    return parser.parse_args()
+
+
 def main():
-    process, real_time_factor = build_process(USE_FAKE)
+    args = parse_args()
+    use_fake = args.fake
+
+    process, real_time_factor = build_process(use_fake)
     controllers = build_controllers(SAMPLING_PERIOD)
     runtimes, state = build_channels(controllers, sampling_period=SAMPLING_PERIOD)
     init_channels(runtimes, state, process)
@@ -49,7 +62,7 @@ def main():
         runtimes=runtimes,
         state=state,
         real_time_factor=real_time_factor,
-        is_simulator=USE_FAKE,
+        is_simulator=use_fake,
         max_duration=5*3600.0,
     )
 

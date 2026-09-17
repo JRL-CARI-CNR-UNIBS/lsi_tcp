@@ -101,10 +101,10 @@ def init_channels(runtimes: Dict[str, ChannelRuntime],
         measure = measures[name]
         state.set_setpoint(name, initial_reference)
         runtime.manual_controller.starting(
-            reference=initial_reference, measure=measure, initial_u=0.0, feedforward=0.0,
+            reference=initial_reference, measure=measure, initial_u=0.0,
         )
         runtime.auto_controller.starting(
-            reference=initial_reference, measure=measure, initial_u=0.0, feedforward=0.0,
+            reference=initial_reference, measure=measure, initial_u=0.0,
         )
 
 
@@ -181,8 +181,8 @@ def run_closed_loop(process,
             # 3) ogni ChannelRuntime decide quale dei suoi due controllori
             #    (manuale o automatico) calcola u, gestendo da solo il
             #    bumpless transfer al cambio di modalità
-            u1, sp1 = runtimes["channel1"].step(measure=measure1, feedforward=0.0)
-            u2, sp2 = runtimes["channel2"].step(measure=measure2, feedforward=0.0)
+            u1, sp1 = runtimes["channel1"].step(measure=measure1)
+            u2, sp2 = runtimes["channel2"].step(measure=measure2)
 
             # 4) scrivo comandi
             process.writeControlCommands(u1=u1, u2=u2)

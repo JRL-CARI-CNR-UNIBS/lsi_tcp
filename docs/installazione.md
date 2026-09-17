@@ -3,7 +3,7 @@
 ## 1.1. Programmi da installare
 
 In Windows,
-- Seguire le istruzioni per installare Git [Git](https://git-scm.com/install/windows)
+- Seguire le istruzioni per installare [Git](https://git-scm.com/install/windows)
 - Scaricare [Anaconda](https://anaconda.com/api/installers/Miniconda3-latest-Windows-x86_64.exe) e installare il programma.
 
 ## 1.2. Clonare / installare il pacchetto
@@ -31,7 +31,7 @@ In Windows,
   ```
 - Aprire la pagina del browser all'indirizzo [http://127.0.0.1:8051/](http://127.0.0.1:8051/)
   
-> **Nota**: il pacchetto è pensato per Python ≥ 3.11 .
+> **Nota**: il pacchetto è pensato per Python ≥ 3.11.
 
 ## 1.3. Connessione
 

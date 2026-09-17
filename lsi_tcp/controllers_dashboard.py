@@ -87,7 +87,8 @@ class ControllerDashboard:
                                     NON deve essere modificato a mano dallo studente
                                     (il campo numerico viene disabilitato)
             host, port, debug, title, serve_dev_bundles, start_in_background,
-            plot_period, time_window: come nella versione precedente.
+            plot_period, time_window: parametri di configurazione del server
+                                    Dash e del refresh dei grafici.
         """
         self.runtimes = runtimes
         self.state = state
@@ -120,7 +121,7 @@ class ControllerDashboard:
         # generato dinamicamente DOPO il primo render (non è nel layout iniziale).
         self.app = dash.Dash(
             __name__,
-            external_stylesheets=[dbc.themes.BOOTSTRAP],
+            external_stylesheets=[dbc.themes.CYBORG],
             suppress_callback_exceptions=True,
         )
 
@@ -603,27 +604,25 @@ class ControllerDashboard:
 
     def _build_figure(self, time_window: int):
         """
-        Griglia 2x2:
-          - riga 1: per ciascun canale, T e SP (asse sx, tratteggiato per SP)
-                    insieme a U (asse dx) nello STESSO subplot (doppio asse Y);
-          - riga 2: errore (SP - T) per canale, utile per leggere a colpo
-                    d'occhio sovraelongazione/tempo di assestamento.
+        Griglia 3x2 (colonna 1 = canale 1, colonna 2 = canale 2):
+          - riga 1: T e SP (se presente);
+          - riga 2: U;
+          - riga 3: errore (SP - T), utile per leggere a colpo d'occhio
+                    sovraelongazione/tempo di assestamento.
         """
         d = self._windowed_data(time_window)
 
         fig = make_subplots(
-            rows=2,
+            rows=3,
             cols=2,
             shared_xaxes=True,
-            vertical_spacing=0.08,
+            vertical_spacing=0.06,
             horizontal_spacing=0.08,
-            specs=[
-                [{"secondary_y": True}, {"secondary_y": True}],
-                [{}, {}],
-            ],
             subplot_titles=(
-                "Canale 1: T1/SP1 (sx) e U1 (dx)",
-                "Canale 2: T2/SP2 (sx) e U2 (dx)",
+                "Canale 1: T1/SP1",
+                "Canale 2: T2/SP2",
+                "Canale 1: U1",
+                "Canale 2: U2",
                 "Errore canale 1 (SP1 - T1)",
                 "Errore canale 2 (SP2 - T2)",
             ),
@@ -632,17 +631,17 @@ class ControllerDashboard:
         def _add_channel(col, t_data, sp_data, u_data, t_name, u_name):
             fig.add_trace(
                 go.Scatter(x=d["time"], y=t_data, mode="lines", name=t_name, line=dict(width=2)),
-                row=1, col=col, secondary_y=False,
+                row=1, col=col,
             )
             if any(v is not None for v in sp_data):
                 fig.add_trace(
                     go.Scatter(x=d["time"], y=sp_data, mode="lines", name=f"SP{t_name[-1]}",
                                 line=dict(dash="dash")),
-                    row=1, col=col, secondary_y=False,
+                    row=1, col=col,
                 )
             fig.add_trace(
                 go.Scatter(x=d["time"], y=u_data, mode="lines", name=u_name, line=dict(width=1.5)),
-                row=1, col=col, secondary_y=True,
+                row=2, col=col,
             )
             error = [
                 (sp - t) if (sp is not None) else None
@@ -650,30 +649,30 @@ class ControllerDashboard:
             ]
             fig.add_trace(
                 go.Scatter(x=d["time"], y=error, mode="lines", name=f"e{t_name[-1]}", showlegend=False),
-                row=2, col=col,
+                row=3, col=col,
             )
 
         _add_channel(1, d["t1"], d["sp1"], d["u1"], "T1", "U1")
         _add_channel(2, d["t2"], d["sp2"], d["u2"], "T2", "U2")
 
-        fig.update_yaxes(title_text="Temperatura [°C]", row=1, col=1, secondary_y=False)
-        fig.update_yaxes(title_text="U [%]", row=1, col=1, secondary_y=True)
-        fig.update_yaxes(title_text="Temperatura [°C]", row=1, col=2, secondary_y=False)
-        fig.update_yaxes(title_text="U [%]", row=1, col=2, secondary_y=True)
-        fig.update_yaxes(title_text="Errore [°C]", row=2, col=1)
-        fig.update_yaxes(title_text="Errore [°C]", row=2, col=2)
+        fig.update_yaxes(title_text="Temperatura [°C]", row=1, col=1)
+        fig.update_yaxes(title_text="Temperatura [°C]", row=1, col=2)
+        fig.update_yaxes(title_text="U [%]", row=2, col=1)
+        fig.update_yaxes(title_text="U [%]", row=2, col=2)
+        fig.update_yaxes(title_text="Errore [°C]", row=3, col=1)
+        fig.update_yaxes(title_text="Errore [°C]", row=3, col=2)
 
         if d["time"]:
             tick_step = max(1, len(d["time"]) // 10)
             tickvals = d["time"][::tick_step]
-            for r in (1, 2):
+            for r in (1, 2, 3):
                 for c in (1, 2):
                     fig.update_xaxes(tickvals=tickvals, ticktext=tickvals, row=r, col=c)
 
         fig.update_layout(
-            height=750,
+            height=1000,
             showlegend=True,
-            template="plotly_white",
+            template="plotly_dark",
             margin=dict(l=50, r=50, t=60, b=40),
         )
 

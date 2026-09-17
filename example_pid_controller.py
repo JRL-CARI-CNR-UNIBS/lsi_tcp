@@ -1,5 +1,5 @@
 from lsi_tcp import TCLabSystem, FakeTCLabSystem
-from lsi_tcp import PController
+from lsi_tcp import PIDController
 from lsi_tcp import ControllerDashboard
 from lsi_tcp import build_process, build_channels, init_channels, run_closed_loop
 import argparse
@@ -18,18 +18,16 @@ def build_controllers(sampling_period: float):
     ciascun canale (per il jog "a mano" dalla dashboard) viene creato
     internamente da build_channels(): qui basta il vostro controllore.
     """
-    c1 = PController(
+    c1 = PIDController(
         sampling_period=sampling_period,
-        Kp=2.0,
+        # METTI QUI I PARAMETRI
         u_min=0.0,
         u_max=100.0,
     )
-    # tuning iniziale
-    c1.setParameters({"Kp": 3.0})
 
-    c2 = PController(
+    c2 = PIDController(
         sampling_period=sampling_period,
-        Kp=2.0,
+        # METTI QUI I PARAMETRI
         u_min=0.0,
         u_max=100.0,
     )
@@ -41,7 +39,7 @@ def build_controllers(sampling_period: float):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Esempio controllore proporzionale")
+    parser = argparse.ArgumentParser(description="Esempio controllore PID")
     parser.add_argument(
         "--fake",
         action="store_true",
