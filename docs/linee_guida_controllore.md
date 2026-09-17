@@ -8,7 +8,9 @@ Questa guida ti aiuterà a scrivere una nuova classe per un controllore in Pytho
 > `computeControlAction` da completare (cercate i commenti `# inserisci il
 > tuo codice qui`). Gli esempi di questa pagina vi guidano nel riempirli.
 
-## 1. Creare la Classe Base
+## 1. Modificare la Classe PIDController
+
+**Nota**: potete usare la classe definita in **pid_controller.py** e saltare i punti 1 e 2.
 
 Se la tua classe controllore eredita da una classe base, come `BaseController`, 
 devi prima capire come funziona la classe base. 
@@ -115,9 +117,7 @@ di dover capire da dove arriva un bug in un PID scritto tutto insieme.
 
 ## 5. Il filtro passa-basso (es. sul termine derivativo)
 
-Se il tuo controllore usa un termine derivativo (PID), sai già dai corsi di teoria
-che la derivata pura amplifica il rumore di misura. Il rimedio classico è
-**filtrare** il termine derivativo con un filtro passa-basso del primo ordine.
+Se il tuo controllore usa un termine derivativo (PID), sai già che la derivata pura amplifica il rumore di misura. Il rimedio classico è **filtrare** il termine derivativo con un filtro passa-basso del primo ordine.
 
 **Importante**: il filtro NON va scritto come una classe separata. Va
 implementato **dentro la classe del controllore**, esattamente come fai per
@@ -125,67 +125,7 @@ l'integratore: è un altro stato persistente, gestito con gli stessi strumenti
 (un attributo `self._...`, inizializzato in `starting` e aggiornato in
 `computeControlAction`).
 
-### Perché dentro la classe e non a parte?
 
-Un filtro esterno dovrebbe comunque "ricordare" un suo stato interno da un
-passo all'altro, quindi avresti bisogno di un'altra classe con lo stesso
-identico problema (dove salvo lo stato tra una chiamata e l'altra?) che stai
-già risolvendo per il controllore. Tenerlo nella stessa classe evita di dover
-sincronizzare due oggetti (es. chiamare `starting` su entrambi, passare
-parametri a entrambi) per un singolo controllore.
-
-### Esempio: derivata filtrata in un PID
-
-Il filtro passa-basso discreto (Eulero all'indietro) sul termine derivativo ha
-tipicamente la forma:
-
-$$
-d_{filt}[k] = d_{filt}[k-1] + \frac{T_s}{T_f + T_s}\big(d_{grezzo}[k] - d_{filt}[k-1]\big)
-$$
-
-dove `T_f` è la costante di tempo del filtro (parametro tarabile) e `T_s` è
-`sampling_period`.
-
-```python
-def __init__(self, sampling_period, Kp=1.0, Ki=0.0, Kd=0.0, Tf=1.0,
-             u_min=0.0, u_max=100.0):
-    super().__init__(sampling_period=sampling_period, u_min=u_min, u_max=u_max)
-    self._parameters.update({"Kp": Kp, "Ki": Ki, "Kd": Kd, "Tf": Tf})
-    self.Kp, self.Ki, self.Kd, self.Tf = Kp, Ki, Kd, Tf
-
-def starting(self, reference, measure, initial_u):
-    # Stati persistenti: uno per l'integratore, uno per la derivata filtrata,
-    # uno per l'errore al passo precedente. Convivono nella stessa classe.
-    self._integratore = 0.0
-    self._d_filt = 0.0
-    self._error_prev = reference - measure
-
-def computeControlAction(self, reference, measure):
-    error = reference - measure
-
-    # Derivata grezza (differenza in avanti sull'errore)
-    d_raw = (error - self._error_prev) / self.sampling_period
-
-    # Filtro passa-basso sulla derivata: self._d_filt è lo stato che
-    # "ricorda" il valore filtrato al passo precedente, esattamente come
-    # self._integratore ricorda la somma accumulata.
-    alpha = self.sampling_period / (self.Tf + self.sampling_period)
-    self._d_filt += alpha * (d_raw - self._d_filt)
-
-    self._integratore += self.Ki * error * self.sampling_period
-
-    u = self.Kp * error + self._integratore + self.Kd * self._d_filt
-    u = self._apply_saturation(u)
-
-    self._error_prev = error
-    return u
-```
-
-Nota come `self._d_filt`, `self._integratore` e `self._error_prev` sono tre
-stati diversi, ognuno con il proprio significato, che convivono senza
-interferire tra loro: ognuno viene inizializzato in `starting` e aggiornato
-in `computeControlAction`, proprio come un blocco "memoria" (ritardo unitario)
-in Simulink.
 
 ## Conclusioni
 
