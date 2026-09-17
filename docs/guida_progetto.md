@@ -3,82 +3,31 @@
 Di seguito una **roadmap pratica** che collega il codice del repository ai tre step richiesti.
 
 ## 5.1. Preparare il codice
-Creare una cartella di lavoro (non tclab)
+
+- Aprire _Anaconda Powershell Prompt_
+- impostare la cartella di lavoro (mettete il percorso giusto!)
+  ```bash
+  cd "C:\Users\beschi\Documents\lsa"
+  ```
+- Attivare l'ambiente
+  ```bash
+  conda activate lsa
+  cd lsi_tcp
+  ```
 
 ## 5.2. Step 1 – Prova di identificazione (anello aperto)
 
-Script per il controllo manuale (da copiare nella cartella di lavoro,
-uguale a `example_open_loop.py` nella root del repo):
-
-```python
-from lsi_tcp import TCLabSystem, FakeTCLabSystem
-from lsi_tcp import ManualController
-from lsi_tcp import ControllerDashboard
-from lsi_tcp import build_process, build_channels, init_channels, run_closed_loop
-import time
-
-# ==========================
-# Configurazione generale
-# ==========================
-
-USE_FAKE = True            # True -> usa FakeTCLabSystem, False -> hardware reale
-SAMPLING_PERIOD = 1.0      # [s]
-
-def build_controllers(sampling_period: float):
-    """
-    Nessun controllore automatico ancora: entrambi i canali restano in
-    ManualController (la potenza U si imposta a mano dalla dashboard).
-    """
-    c1 = ManualController(
-        sampling_period=sampling_period,
-        manual_control_action=0.0,
-        u_min=0.0,
-        u_max=100.0,
-    )
-
-    c2 = ManualController(
-        sampling_period=sampling_period,
-        manual_control_action=0.0,
-        u_min=0.0,
-        u_max=100.0,
-    )
-
-    return {
-        "channel1": c1,
-        "channel2": c2,
-    }
-
-
-def main():
-    process, real_time_factor = build_process(USE_FAKE)
-    controllers = build_controllers(SAMPLING_PERIOD)
-    runtimes, state = build_channels(controllers, sampling_period=SAMPLING_PERIOD)
-    init_channels(runtimes, state, process)
-
-    run_closed_loop(
-        process=process,
-        runtimes=runtimes,
-        state=state,
-        real_time_factor=real_time_factor,
-        is_simulator=USE_FAKE,
-        max_duration=5*3600.0,
-    )
-
-
-if __name__ == "__main__":
-    main()
-
-```
+Script per il controllo manuale:
 
 1. **Preparazione del sistema**
-   - scegliete se lavorare in simulazione (`USE_FAKE = True`) o con l’hardware reale (`USE_FAKE = False`);
-   - impostate la frequenza di campionamento (`SAMPLING_PERIOD`, tipicamente 1 s).
+   - scegliete se lavorare in simulazione (`python example_proportional.py --fake`) o con l’hardware reale (`python example_proportional.py`);
+
 
 2. **Esecuzione della prova**
    - partite con `U1 = U2 = 0%` e lasciate stabilizzare le temperature;
    - applicate un gradino su `U1` (es. da 0% a 40–60%);
    - mantenete il gradino per un tempo sufficiente a raggiungere un nuovo regime;
-   - effettuate più prove con ampiezze di gradino diverse;
+   - effettuate più prove con punti di partenza e ampiezze di gradino diversi;
    - ripetete per `U2`.
 
 3. **Raccolta dati**
@@ -93,8 +42,57 @@ del 10%-90% già visto in un corso precedente (potete anche fare i conti a
 mano, senza script, se preferite).
 
 1. **Caricate il CSV** e costruite l'asse dei tempi in secondi (la colonna
-   `Time` è un timestamp simulato: convertitelo in secondi rispetto al primo
+   `Time` è un timestamp: convertitelo in secondi rispetto al primo
    campione).
+
+  ```matlab
+%% 1. Apertura del file
+% readtable legge il CSV e riconosce automaticamente header e tipi di dato
+data = readtable('tclab_20260917153728.csv');
+
+% La colonna Time viene letta come datetime (o come stringa, dipende
+% dalla versione di MATLAB). Se serve, forziamo la conversione esplicita:
+if ~isdatetime(data.Time)
+    data.Time = datetime(data.Time, 'InputFormat', 'yyyy-MM-dd HH:mm:ss');
+end
+
+%% 2. Convertire il tempo in secondi, con t(1) = 0
+% seconds(diff) calcola la differenza tra istanti come durata in secondi
+t = seconds(data.Time - data.Time(1));
+
+%% 3. Creare i vettori t, u1, y1, u2, y2
+y1 = data.T1;   % temperatura canale 1 (uscita)
+y2 = data.T2;   % temperatura canale 2 (uscita)
+u1 = data.U1;   % comando canale 1 (ingresso)
+u2 = data.U2;   % comando canale 2 (ingresso)
+
+%% 4. Grafico con 4 subplot (2 righe x 2 colonne)
+figure;
+
+subplot(2,2,1)
+plot(t, y1, 'b', 'LineWidth', 1.2)
+xlabel('t [s]'); ylabel('y1 [°C]')
+title('Uscita canale 1')
+grid on
+
+subplot(2,2,2)
+plot(t, y2, 'r', 'LineWidth', 1.2)
+xlabel('t [s]'); ylabel('y2 [°C]')
+title('Uscita canale 2')
+grid on
+
+subplot(2,2,3)
+plot(t, u1, 'b', 'LineWidth', 1.2)
+xlabel('t [s]'); ylabel('u1 [%]')
+title('Ingresso canale 1')
+grid on
+
+subplot(2,2,4)
+plot(t, u2, 'r', 'LineWidth', 1.2)
+xlabel('t [s]'); ylabel('u2 [%]')
+title('Ingresso canale 2')
+grid on
+  ```
 
 2. **Individuate il gradino**
 
@@ -124,9 +122,15 @@ mano, senza script, se preferite).
    da usare nella fase di taratura.
 
 ## 5.4. Step 3 – Implementare il Controllore
-Implementare il controllore PID derivando dalla classe [base](../lsi_tcp/base_controller.py)
+Per Implementare il controllore PID potete partire dall'implementazione del [proporzionale](../lsi_tcp/proportional_controller.py), copiandolo in un nuovo file chiamato pid_controller.py nella cartella  `lsi_tcp`.
+Rinominare la classe in **PIDController**
 
-Potete partire dall'implementazione del [proporzionale](../lsi_tcp/proportional_controller.py)
+Aggiungrre a [__init__.py](lsi_tcp/__init__.py) la riga:
+```python
+from .pid_controller import PIDController
+```
+e aggiungere a `__all__` il nome del nuovo controllore  _"PIDController"_
+
 
 La descrizione dettagliata del controllore proporzionale si trova [qui](PController.md)
 
@@ -140,24 +144,27 @@ Per poter modificare i parametri online aggiungeteli qui:
         })
 ```
 
-Un esempio di script per lanciare il controllore è [qui](../example_proportional.py).
+Un esempio di script per lanciare il controllore è [qui](../example_proportional.py), createne una copia che lanci il vostro controllore.
 In particolare va modificata `build_controllers` per restituire il VOSTRO
 controllore automatico (il `ManualController` per il jog manuale viene
 aggiunto da `build_channels`, non va incluso qui — vedi [§3.5](concetti.md#35-utility-di-alto-livello-utilspy) e [§4](esempi.md)):
 ```python
+from lsi_tcp import import PIDController
 def build_controllers(sampling_period: float):
     """
     Crea i controllori automatici e li restituisce in un dict
     {"channel1": ..., "channel2": ...}.
     """
-    c1 = YourMagicController(
+    c1 = PIDController(
         sampling_period=sampling_period,
+        METTETE QUI I VOSTRI PARAMETRI IN INGRESSO
         u_min=0.0,
         u_max=100.0,
     )
 
-    c2 = YourMagicController(
+    c2 = PIDController(
         sampling_period=sampling_period,
+        METTETE QUI I VOSTRI PARAMETRI IN INGRESSO
         u_min=0.0,
         u_max=100.0,
     )
