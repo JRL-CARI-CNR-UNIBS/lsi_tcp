@@ -21,8 +21,7 @@ tra il valore di riferimento (setpoint) e il valore misurato.
   - \(y\) è l'uscita misurata (variabile di processo).
 
 - **Feedforward**: Un'azione di controllo aggiuntiva che viene applicata direttamente, 
-- senza considerare l'errore. È spesso utilizzata nei sistemi in cui si dispone di un
-- modello per prevedere l'azione di controllo da applicare in anticipo.
+- senza considerare l'errore. È spesso utilizzata nei sistemi in cui si dispone di un modello per prevedere l'azione di controllo da applicare in anticipo.
 
 ## Componente Principali del Codice
 
@@ -30,7 +29,7 @@ Il codice è scritto come classe.
 
 ## Cos'è una Classe in Python?
 
-In Python, **una classe è una "struttura" che definisce un insieme di variabile e funzioni**. 
+In Python, **una classe è una "struttura" che definisce un insieme di variabili e funzioni**. 
 Un oggetto è una "copia" di quella struttura, con valori specifici per ogni oggetto. 
 Immagina la classe come un **progetto**, 
 mentre l'oggetto è una **realizzazione** di quel progetto, 
@@ -98,7 +97,7 @@ direttamente per creare oggetti, ma serve come "modello" per altre classi. Le cl
 La classe `PController` eredita da `BaseController` e implementa la logica del controllore P. Include:
 - **Costruttore (`__init__`)**: Inizializza il controllore con il periodo di campionamento, il guadagno proporzionale \(K_p\), e i limiti per l'uscita (`u_min`, `u_max`).
 - **Metodo di Avvio (`starting`)**: Inizializza il controllore. Questo metodo non deve fare molto per un controllore proporzionale, ma può essere utilizzato per personalizzazioni future.
-- **Calcolo dell'Azione di Controllo (`computeControlAction`)**: Calcola l'uscita di controllo in base all'errore tra il riferimento e la misura, poi applica eventuale azione feedforward e la saturazione.
+- **Calcolo dell'Azione di Controllo (`computeControlAction`)**: Calcola l'uscita di controllo in base all'errore tra il riferimento e la misura, poi applica la saturazione.
 
 ### 3. **Metodi di Supporto**
 - **Saturazione**: Il metodo `_apply_saturation` assicura che l'uscita di controllo rimanga all'interno dei limiti specificati (`u_min` e `u_max`).
@@ -114,7 +113,7 @@ Se sei abituato a lavorare in MATLAB, ecco alcune delle principali differenze:
 
 
 ### Commento del Codice riga per riga
-Il [codice](PController.py) del propozionale è composto da:
+Il [codice](../lsi_tcp/proportional_controller.py) del proporzionale è composto da:
 
 
 ```python
@@ -169,7 +168,6 @@ class PController(BaseController):
         reference: float,
         measure: float,
         initial_u: float,
-        feedforward: float
     ) -> None:
 ```
 - Il metodo `starting` viene utilizzato per inizializzare il controllore. In questo caso, non sono necessari stati interni da inizializzare per un controllore proporzionale, quindi la funzione è vuota. Potresti usarla per altre inizializzazioni o controlli.
@@ -186,13 +184,11 @@ class PController(BaseController):
         self,
         reference: float,
         measure: float,
-        feedforward: float
     ) -> float:
 ```
 - Il metodo `computeControlAction` calcola l'azione di controllo. Riceve i seguenti parametri:
   - `reference`: il valore di riferimento (setpoint).
   - `measure`: il valore misurato (uscita).
-  - `feedforward`: il contributo di controllo in anticipo.
 
 
 ```python
@@ -202,15 +198,9 @@ class PController(BaseController):
 
 
 ```python
-        u_fb = self.Kp * error
+        u = self.Kp * error
 ```
-- Calcola l'azione di feedback proporzionale, moltiplicando l'errore per il guadagno `Kp`
-
-
-```python
-        u = u_fb + feedforward
-```
-- Somma l'azione di feedback proporzionale (`u_fb`) e l'azione feedforward (`feedforward`).
+- Calcola l'azione di controllo, moltiplicando l'errore per il guadagno `Kp`
 
 
 ```python

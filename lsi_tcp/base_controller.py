@@ -7,15 +7,14 @@ class BaseController(ABC):
     Classe base astratta per controllori SISO (single-input-single-output).
 
     Interfaccia minima che ogni controllore derivato deve rispettare:
-        - u = computeControlAction(reference, measure, feedforward)
-        - starting(reference, measure, initial_u, feedforward)
+        - u = computeControlAction(reference, measure)
+        - starting(reference, measure, initial_u)
         - getListOfParameters()
         - setParameters(parameter_dict)
 
     Convenzioni:
         - reference: valore di setpoint / riferimento (r)
         - measure: misura dell'uscita di processo (y)
-        - feedforward: contributo di controllo in anticipo (es. modello)
         - u: azione di controllo complessiva da inviare all’attuatore
         - sampling_period: periodo di campionamento [s] (dt)
         - u_min, u_max: limiti di saturazione dell’azione di controllo.
@@ -66,17 +65,15 @@ class BaseController(ABC):
         self,
         reference: float,
         measure: float,
-        feedforward: float
     ) -> float:
         """
         Calcola l'azione di controllo u a partire da:
 
             - reference: riferimento (setpoint)
             - measure: misura dell’uscita
-            - feedforward: contributo in feedforward
 
         Il comportamento tipico in una sottoclasse può essere, ad esempio:
-            u = u_feedback(reference, measure) + feedforward
+            u = u_feedback(reference, measure)
             u = self._apply_saturation(u)
 
         Questo metodo:
@@ -93,7 +90,6 @@ class BaseController(ABC):
         reference: float,
         measure: float,
         initial_u: float,
-        feedforward: float
     ) -> None:
         """
         Esegue la fase di inizializzazione del controllore.
@@ -108,7 +104,6 @@ class BaseController(ABC):
             - measure: misura iniziale dell’uscita.
             - initial_u: azione di controllo iniziale (ad es. quella in manuale)
                          con cui si vuole partire.
-            - feedforward: eventuale valore di feedforward attivo all’avvio.
         """
         pass
 

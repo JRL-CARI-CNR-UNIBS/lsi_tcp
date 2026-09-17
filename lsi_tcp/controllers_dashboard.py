@@ -1,39 +1,70 @@
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output, State, MATCH, ALL
-from dash.exceptions import PreventUpdate
-
+import csv
+import io
 import threading
 from datetime import datetime
+from typing import Dict, Optional
+
+import dash
+import dash_bootstrap_components as dbc
+import dash_daq as daq
+from dash import dcc, html
+from dash.dependencies import ALL, MATCH, Input, Output, State
+from dash.exceptions import PreventUpdate
 
 import plotly.graph_objs as go
+import plotly.io as pio
 from plotly.subplots import make_subplots
+
+from .channel_runtime import ChannelRuntime
+from .dashboard_state import DashboardState
+
+# Nomi dei segnali di processo associati a ciascun canale. Il progetto
+# lavora sempre con esattamente due canali (T1/U1 e T2/U2): non serve
+# generalizzare a N canali, quindi la mappa è statica.
+_CHANNEL_INFO = {
+    "channel1": {"T": "T1", "U": "U1", "title": "Canale 1 (T1 / U1)"},
+    "channel2": {"T": "T2", "U": "U2", "title": "Canale 2 (T2 / U2)"},
+}
+
+# Parametri "strutturali" comuni a tutti i controllori/FakeTCLabSystem:
+# vengono separati dai parametri "tarabili" nel pannello Offcanvas.
+_STRUCTURAL_PARAMS = ("sampling_period", "u_min", "u_max")
 
 
 class ControllerDashboard:
     """
-    Dashboard Dash per il tuning di un insieme di controllori
-    + visualizzazione delle variabili di processo.
+    Dashboard Dash/Bootstrap per il tuning interattivo di due canali di
+    controllo (channel1 -> T1/U1, channel2 -> T2/U2) + monitoraggio delle
+    variabili di processo.
 
-    controllers: dict {nome_controller: istanza_controller}
-                 ogni istanza deve implementare:
-                   - getListOfParameters()
-                   - getParameters()
-                   - setParameters(dict)
+    Per ogni canale la dashboard NON parla direttamente con le classi
+    controllore: legge/scrive lo stato condiviso in un `DashboardState` e
+    mostra i parametri del controllore attivo esposto da un
+    `ChannelRuntime` (che è anche l'oggetto che, nel loop di controllo,
+    decide quale dei due controllori del canale calcola u).
 
-    I grafici mostrano:
-      - T1 e SP1
-      - U1
-      - T2 e SP2
-      - U2
+    Uso tipico (vedi anche `utils.run_closed_loop`):
 
-    I dati per il grafico vengono aggiornati tramite:
-      get_values(T1, T2, SP1, SP2, U1, U2)
+        state = DashboardState(["channel1", "channel2"])
+        runtimes = {
+            "channel1": ChannelRuntime("channel1", manual1, auto1, state),
+            "channel2": ChannelRuntime("channel2", manual2, auto2, state),
+        }
+        dashboard = ControllerDashboard(runtimes, state, system=process)
+
+        # nel loop di controllo:
+        u1, ref1 = runtimes["channel1"].step(measure=t1)
+        u2, ref2 = runtimes["channel2"].step(measure=t2)
+        dashboard.get_values(T1=t1, T2=t2, U1=u1, U2=u2, SP1=ref1, SP2=ref2)
     """
 
     def __init__(
         self,
-        controllers,
+        runtimes: Dict[str, ChannelRuntime],
+        state: DashboardState,
+        system=None,
+        is_simulator: bool = True,
+        setpoint_from_profile: bool = False,
         host: str = "127.0.0.1",
         port: int = 8051,
         debug: bool = True,
@@ -45,17 +76,26 @@ class ControllerDashboard:
     ):
         """
         Parametri:
-            controllers         : dict {nome_controller: istanza_controller}
-            host                : host Flask/Dash
-            port                : porta di ascolto
-            debug               : flag debug Dash
-            title               : titolo mostrato nella pagina
-            serve_dev_bundles   : se True prova a servire i bundle .js non minificati
-            start_in_background : se True avvia il server in un thread daemon
-            plot_period         : periodo di refresh del grafico [s]
-            time_window         : numero di punti da visualizzare
+            runtimes             : dict {"channel1": ChannelRuntime, "channel2": ChannelRuntime}
+            state                : DashboardState condiviso con il loop di controllo
+            system               : processo (FakeTCLabSystem o TCLabSystem), opzionale.
+                                    Se è un FakeTCLabSystem viene mostrato anche il pannello
+                                    "Modifica parametri simulatore" (K/tau/L).
+            is_simulator         : True se `system` è un simulatore (per il badge di stato)
+            setpoint_from_profile: True durante la fase di validazione finale, quando il
+                                    setpoint in automatico arriva da un SetpointProfile e
+                                    NON deve essere modificato a mano dallo studente
+                                    (il campo numerico viene disabilitato)
+            host, port, debug, title, serve_dev_bundles, start_in_background,
+            plot_period, time_window: parametri di configurazione del server
+                                    Dash e del refresh dei grafici.
         """
-        self.controllers = controllers
+        self.runtimes = runtimes
+        self.state = state
+        self.system = system
+        self.is_simulator = is_simulator
+        self.setpoint_from_profile = setpoint_from_profile
+
         self.host = host
         self.port = port
         self.debug = debug
@@ -76,10 +116,15 @@ class ControllerDashboard:
         self.u2_data = []
         self.max_points = 10000  # limite per evitare crescita infinita
 
-        # Crea app Dash
-        self.app = dash.Dash(__name__)
+        # Crea app Dash con tema Bootstrap. suppress_callback_exceptions è
+        # necessario perché il contenuto degli Offcanvas (parametri) viene
+        # generato dinamicamente DOPO il primo render (non è nel layout iniziale).
+        self.app = dash.Dash(
+            __name__,
+            external_stylesheets=[dbc.themes.CYBORG],
+            suppress_callback_exceptions=True,
+        )
 
-        # Imposta layout e callback
         self.app.layout = self._create_layout()
         self._register_callbacks()
 
@@ -88,266 +133,589 @@ class ControllerDashboard:
         if start_in_background:
             self.start_background()
 
-    # ---------- Layout ----------
+    # ================================================================
+    # Layout
+    # ================================================================
 
     def _create_layout(self):
-        """
-        Crea il layout: card parametri + sezione grafici.
-        """
-        cards = []
-
-        for ctrl_name, ctrl in self.controllers.items():
-            # Parametri del controller
-            param_names = ctrl.getListOfParameters()
-            params = ctrl.getParameters()
-
-            param_inputs = []
-            for p_name in param_names:
-                value = params[p_name]
-
-                if isinstance(value, (int, float)):
-                    input_type = "number"
-                else:
-                    input_type = "text"
-
-                param_inputs.append(
-                    html.Div(
-                        [
-                            html.Label(p_name, style={"display": "block"}),
-                            dcc.Input(
-                                id={
-                                    "type": "param-input",
-                                    "controller": ctrl_name,
-                                    "param": p_name,
-                                },
-                                type=input_type,
-                                value=value,
-                                debounce=True,
-                                style={"width": "100%"},
-                            ),
-                        ],
-                        style={"marginBottom": "8px"},
-                    )
-                )
-
-            card = html.Div(
-                [
-                    html.H3(f"Controller: {ctrl_name}"),
-                    html.Div(param_inputs),
-                    html.Button(
-                        "Update",
-                        id={"type": "update-btn", "controller": ctrl_name},
-                        n_clicks=0,
-                    ),
-                    html.Div(
-                        id={"type": "status", "controller": ctrl_name},
-                        style={"marginTop": "8px", "color": "green"},
-                    ),
-                ],
-                style={
-                    "border": "1px solid #ccc",
-                    "borderRadius": "8px",
-                    "padding": "16px",
-                    "marginBottom": "16px",
-                    "boxShadow": "0 2px 4px rgba(0,0,0,0.1)",
-                },
-            )
-
-            cards.append(card)
-
-        # Sezione grafico sotto le card dei parametri
-        plot_section = html.Div(
+        header = dbc.Row(
             [
-                html.H2(
-                    "Andamento variabili di processo",
-                    style={"marginTop": "40px", "marginBottom": "10px"},
+                dbc.Col(html.H1(self.title), width="auto"),
+                dbc.Col(
+                    dbc.Badge(
+                        "Simulatore" if self.is_simulator else "Hardware reale",
+                        color="info" if self.is_simulator else "warning",
+                        className="ms-2",
+                        style={"fontSize": "1rem"},
+                    ),
+                    width="auto",
+                    className="d-flex align-items-center",
                 ),
-                html.Div(
+            ],
+            align="center",
+            className="mb-3",
+        )
+
+        channel_cards = dbc.Row(
+            [dbc.Col(self._build_channel_card(ch), md=6) for ch in self.runtimes],
+            className="mb-3",
+        )
+
+        system_row = []
+        if self.system is not None and hasattr(self.system, "getListOfParameters"):
+            system_row.append(dbc.Row(dbc.Col(self._build_system_card()), className="mb-3"))
+
+        controls = dbc.Row(
+            [
+                dbc.Col(
                     [
-                        html.Label("Finestra temporale (n° dati da visualizzare)"),
+                        dbc.Label("Finestra temporale (n° campioni)"),
                         dcc.Input(
                             id="time-window",
                             type="number",
                             value=self.time_window,
                             min=1,
                             step=1,
-                            style={"width": "120px", "marginLeft": "8px"},
+                            style={"width": "140px"},
                         ),
                     ],
-                    style={"marginBottom": "10px"},
+                    width="auto",
                 ),
+                dbc.Col(
+                    dbc.Button("⏸ Pausa grafico", id="pause-btn", color="secondary", outline=True),
+                    width="auto",
+                ),
+                dbc.Col(
+                    dbc.Button("Esporta CSV", id="export-csv-btn", color="secondary", outline=True),
+                    width="auto",
+                ),
+                dbc.Col(
+                    dbc.Button("Esporta PNG", id="export-png-btn", color="secondary", outline=True),
+                    width="auto",
+                ),
+            ],
+            align="center",
+            className="mb-2 g-2",
+        )
+
+        plot_section = html.Div(
+            [
+                html.H2("Andamento variabili di processo", className="mt-4 mb-2"),
+                controls,
                 dcc.Graph(id="real-time-graph"),
                 dcc.Interval(
                     id="interval-component",
                     interval=int(self.plot_period * 1000),
                     n_intervals=0,
                 ),
+                dcc.Store(id="pause-flag", data=False),
+                dcc.Download(id="download-csv"),
+                dcc.Download(id="download-png"),
             ],
-            style={"marginTop": "30px"},
+            className="mt-3",
         )
 
-        layout = html.Div(
-            [
-                html.H1(self.title),
-                html.Div(
-                    "Modifica i parametri e premi 'Update' per applicare i nuovi valori.",
-                    style={"marginBottom": "20px"},
+        return dbc.Container(
+            [header, channel_cards, *system_row, plot_section],
+            fluid=True,
+            className="py-3",
+        )
+
+    def _build_channel_card(self, ch: str):
+        info = _CHANNEL_INFO[ch]
+        runtime = self.runtimes[ch]
+        mode = runtime.mode
+
+        return dbc.Card(
+            dbc.CardBody(
+                [
+                    dbc.Row(
+                        [
+                            dbc.Col(html.H4(info["title"]), width="auto"),
+                            dbc.Col(
+                                dbc.Badge(
+                                    "Automatico" if mode == "auto" else "Manuale",
+                                    id=f"mode-badge-{ch}",
+                                    color="success" if mode == "auto" else "secondary",
+                                ),
+                                width="auto",
+                                className="d-flex align-items-center",
+                            ),
+                        ],
+                        align="center",
+                        className="mb-2",
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(daq.BooleanSwitch(id=f"mode-switch-{ch}", on=(mode == "auto")), width="auto"),
+                            dbc.Col(html.Span("Manuale ⟷ Automatico"), width="auto"),
+                        ],
+                        align="center",
+                        className="mb-3 g-2",
+                    ),
+                    dbc.Label(id=f"adaptive-label-{ch}", children=self._adaptive_label(ch)),
+                    dcc.Input(
+                        id=f"adaptive-input-{ch}",
+                        type="number",
+                        value=self._adaptive_value(ch),
+                        debounce=True,
+                        disabled=self._adaptive_disabled(ch),
+                        style={"width": "100%"},
+                        className="mb-3",
+                    ),
+                    dbc.Row(
+                        [
+                            dbc.Col(html.Div([html.Small("Errore corrente"), html.H5(id=f"kpi-error-{ch}", children="-")])),
+                            dbc.Col(html.Div([html.Small("Parametri attivi"), html.Div(id=f"kpi-params-{ch}", children="-")])),
+                        ],
+                        className="mb-3",
+                    ),
+                    dbc.Button("Modifica parametri", id=f"param-open-{ch}", size="sm", color="primary", outline=True),
+                    dbc.Offcanvas(
+                        id=f"param-offcanvas-{ch}",
+                        title=f"Parametri – {info['title']}",
+                        is_open=False,
+                        children=html.Div(id=f"param-body-{ch}"),
+                    ),
+                    # Target "a perdere" per il callback che intercetta la
+                    # digitazione nel campo adattivo e la scrive in
+                    # DashboardState: non deve pilotare nulla in pagina.
+                    html.Div(id=f"_dummy-output-{ch}", style={"display": "none"}),
+                ]
+            ),
+            className="h-100",
+        )
+
+    def _build_system_card(self):
+        return dbc.Card(
+            dbc.CardBody(
+                [
+                    html.H4("Simulatore (FakeTCLabSystem)"),
+                    html.P("Parametri del modello FOPDT usati in fase di test in simulato."),
+                    dbc.Button("Modifica parametri simulatore", id="param-open-system", size="sm", color="primary", outline=True),
+                    dbc.Offcanvas(
+                        id="param-offcanvas-system",
+                        title="Parametri del simulatore",
+                        is_open=False,
+                        children=html.Div(id="param-body-system"),
+                    ),
+                ]
+            )
+        )
+
+    # ---------- helper per il campo numerico "adattivo" ----------
+
+    # Nota: questi helper leggono SEMPRE la modalità da self.state (l'intento
+    # dell'utente, aggiornato immediatamente dallo switch), non da
+    # runtimes[ch].mode (la modalità del ChannelRuntime, che si allinea con
+    # un ritardo massimo di un sampling_period, al prossimo giro del loop
+    # di controllo). Usare runtimes[ch].mode qui creerebbe una finestra in
+    # cui il campo adattivo scrive nello stato sbagliato (manual_u invece
+    # di setpoint, o viceversa) subito dopo un cambio di modalità.
+    def _adaptive_label(self, ch: str) -> str:
+        mode = self.state.get_mode(ch)
+        return "Setpoint [°C]" if mode == "auto" else "Potenza U [%]"
+
+    def _adaptive_value(self, ch: str) -> float:
+        mode, manual_u, setpoint = self.state.snapshot(ch)
+        return setpoint if mode == "auto" else manual_u
+
+    def _adaptive_disabled(self, ch: str) -> bool:
+        mode = self.state.get_mode(ch)
+        return mode == "auto" and self.setpoint_from_profile
+
+    # ================================================================
+    # Pannello parametri (Offcanvas) - riutilizzabile per controllori e
+    # per FakeTCLabSystem
+    # ================================================================
+
+    def _resolve_target(self, scope: str):
+        """Ritorna l'oggetto con getListOfParameters/getParameters/setParameters per lo scope."""
+        if scope == "system":
+            return self.system
+        return self.runtimes[scope].active_controller
+
+    def _build_param_body(self, scope: str):
+        target = self._resolve_target(scope)
+        if target is None:
+            return html.Div("Nessun parametro disponibile.")
+
+        names = target.getListOfParameters()
+        params = target.getParameters()
+
+        tunable = [n for n in names if n not in _STRUCTURAL_PARAMS]
+        structural = [n for n in names if n in _STRUCTURAL_PARAMS]
+
+        def _param_row(p_name, with_slider):
+            value = params[p_name]
+            is_numeric = isinstance(value, (int, float)) and not isinstance(value, bool)
+            children = [
+                html.Label(p_name, className="fw-bold"),
+                dcc.Input(
+                    id={"type": "param-input", "scope": scope, "param": p_name},
+                    type="number" if is_numeric else "text",
+                    value=value,
+                    debounce=True,
+                    style={"width": "100%"},
                 ),
-                html.Div(cards),
-                plot_section,
-            ],
-            style={"maxWidth": "900px", "margin": "0 auto", "fontFamily": "sans-serif"},
+            ]
+            if with_slider and is_numeric:
+                # Lo slider è solo un'aggiunta di comodo: muove SOLO il campo
+                # numerico (slider -> input), che resta l'unica sorgente
+                # inviata a setParameters(). Un legame bidirezionale vero e
+                # proprio creerebbe un ciclo di callback Dash.
+                lo = min(0.0, float(value))
+                hi = max(float(value) * 3.0, float(value) + 10.0, 10.0)
+                children.append(
+                    dcc.Slider(
+                        id={"type": "param-slider", "scope": scope, "param": p_name},
+                        min=lo,
+                        max=hi,
+                        value=float(value),
+                        updatemode="mouseup",
+                        tooltip={"placement": "bottom"},
+                    )
+                )
+            return html.Div(children, className="mb-3")
+
+        body = [_param_row(p, with_slider=True) for p in tunable]
+
+        if structural:
+            body.append(html.Hr())
+            body.append(html.Div("Parametri di sistema", className="fw-bold text-muted mb-2"))
+            body.extend(_param_row(p, with_slider=False) for p in structural)
+
+        body.append(
+            dbc.Button("Applica", id=f"param-submit-{scope}", color="primary", className="mt-2")
         )
+        body.append(html.Div(id=f"param-status-{scope}", className="mt-2"))
 
-        return layout
+        return html.Div(body)
 
-    # ---------- Callbacks ----------
+    def _register_param_panel(self, scope: str):
+        open_id = f"param-open-{scope}"
+        offcanvas_id = f"param-offcanvas-{scope}"
+        body_id = f"param-body-{scope}"
+        submit_id = f"param-submit-{scope}"
+        status_id = f"param-status-{scope}"
+
+        @self.app.callback(
+            Output(offcanvas_id, "is_open"),
+            Output(body_id, "children"),
+            Input(open_id, "n_clicks"),
+            prevent_initial_call=True,
+        )
+        def _open_panel(n_clicks, scope=scope):
+            if not n_clicks:
+                raise PreventUpdate
+            return True, self._build_param_body(scope)
+
+        @self.app.callback(
+            Output(status_id, "children"),
+            Input(submit_id, "n_clicks"),
+            State({"type": "param-input", "scope": scope, "param": ALL}, "value"),
+            State({"type": "param-input", "scope": scope, "param": ALL}, "id"),
+            prevent_initial_call=True,
+        )
+        def _submit_panel(n_clicks, values, ids, scope=scope):
+            if not n_clicks:
+                raise PreventUpdate
+            target = self._resolve_target(scope)
+            param_update = {
+                id_dict["param"]: value
+                for value, id_dict in zip(values, ids)
+                if value is not None
+            }
+            try:
+                target.setParameters(param_update)
+            except Exception as e:
+                return f"Errore aggiornando parametri: {e}"
+            return "Parametri aggiornati con successo."
+
+    # ================================================================
+    # Callback principali
+    # ================================================================
 
     def _register_callbacks(self):
+        # Slider -> input numerico: aggiorna SOLO il campo numerico associato
+        # (stesso scope/param), che resta l'unica sorgente inviata a
+        # setParameters(). Il binding è mono-direzionale per evitare un
+        # ciclo di callback Dash.
+        @self.app.callback(
+            Output({"type": "param-input", "scope": MATCH, "param": MATCH}, "value"),
+            Input({"type": "param-slider", "scope": MATCH, "param": MATCH}, "value"),
+            prevent_initial_call=True,
+        )
+        def _slider_to_input(value):
+            if value is None:
+                raise PreventUpdate
+            return value
+
+        # Pannelli parametri: uno per canale + eventualmente uno per il sistema
+        for ch in self.runtimes:
+            self._register_param_panel(ch)
+        if self.system is not None and hasattr(self.system, "getListOfParameters"):
+            self._register_param_panel("system")
+
+        # Switch manuale/automatico e campo adattivo: un callback per canale
+        # (non serve pattern-matching: il trigger, lo switch, è già
+        # per-istanza e i due canali hanno comportamento identico).
+        for ch in self.runtimes:
+            self._register_mode_switch_callback(ch)
+            self._register_ticker_callback(ch)
+
+        self._register_pause_callback()
+        self._register_graph_callback()
+        self._register_export_callbacks()
+
+    def _register_mode_switch_callback(self, ch: str):
+        @self.app.callback(
+            Output(f"adaptive-label-{ch}", "children", allow_duplicate=True),
+            Output(f"adaptive-input-{ch}", "value", allow_duplicate=True),
+            Output(f"adaptive-input-{ch}", "disabled", allow_duplicate=True),
+            Output(f"mode-badge-{ch}", "children", allow_duplicate=True),
+            Output(f"mode-badge-{ch}", "color", allow_duplicate=True),
+            Input(f"mode-switch-{ch}", "on"),
+            prevent_initial_call=True,
+        )
+        def _on_switch(is_auto, ch=ch):
+            new_mode = "auto" if is_auto else "manual"
+            self.state.set_mode(ch, new_mode)
+            # Il vero bumpless transfer (chiamata a starting()) avviene nel
+            # loop di controllo alla prossima iterazione (ChannelRuntime.step),
+            # che è anche l'unico punto che tocca le classi controllore.
+            return (
+                self._adaptive_label(ch),
+                self._adaptive_value(ch),
+                self._adaptive_disabled(ch),
+                "Automatico" if is_auto else "Manuale",
+                "success" if is_auto else "secondary",
+            )
+
+        @self.app.callback(
+            Output("_dummy-output-" + ch, "children"),
+            Input(f"adaptive-input-{ch}", "value"),
+            prevent_initial_call=True,
+        )
+        def _on_adaptive_input(value, ch=ch):
+            if value is None:
+                raise PreventUpdate
+            mode = self.state.get_mode(ch)
+            if mode == "auto":
+                self.state.set_setpoint(ch, value)
+            else:
+                self.state.set_manual_u(ch, value)
+            return ""
+
+    def _register_ticker_callback(self, ch: str):
         """
-        Registra i callback:
-          - update parametri controller
-          - aggiornamento grafico in tempo reale
+        Aggiorna, ad ogni tick dell'Interval, le informazioni di sola
+        lettura del canale (badge, KPI). Il campo numerico adattivo viene
+        aggiornato qui SOLO quando è disabilitato (setpoint pilotato da
+        SetpointProfile in fase di validazione): in quel caso non c'è
+        rischio di sovrascrivere ciò che lo studente sta digitando.
         """
 
         @self.app.callback(
-            Output({"type": "status", "controller": MATCH}, "children"),
-            Input({"type": "update-btn", "controller": MATCH}, "n_clicks"),
-            State({"type": "param-input", "controller": MATCH, "param": ALL}, "value"),
-            State({"type": "param-input", "controller": MATCH, "param": ALL}, "id"),
+            Output(f"mode-badge-{ch}", "children"),
+            Output(f"mode-badge-{ch}", "color"),
+            Output(f"kpi-error-{ch}", "children"),
+            Output(f"kpi-params-{ch}", "children"),
+            Output(f"adaptive-input-{ch}", "value"),
+            Input("interval-component", "n_intervals"),
         )
-        def update_controller_parameters(n_clicks, values, ids):
-            if not n_clicks:
-                raise PreventUpdate
+        def _tick(n, ch=ch):
+            runtime = self.runtimes[ch]
+            mode = runtime.mode
+            badge_text = "Automatico" if mode == "auto" else "Manuale"
+            badge_color = "success" if mode == "auto" else "secondary"
 
-            if not ids:
-                return "Nessun parametro trovato."
+            error_text = self._compute_kpis(ch)
+            params_text = ", ".join(
+                f"{k}={v:.3g}" if isinstance(v, (int, float)) else f"{k}={v}"
+                for k, v in runtime.active_controller.getParameters().items()
+                if k not in _STRUCTURAL_PARAMS
+            ) or "-"
 
-            ctrl_name = ids[0]["controller"]
-            ctrl = self.controllers[ctrl_name]
+            adaptive_value = dash.no_update
+            if mode == "auto" and self.setpoint_from_profile:
+                adaptive_value = self.state.get_setpoint(ch)
 
-            param_update = {}
-            for value, id_dict in zip(values, ids):
-                p_name = id_dict["param"]
-                if value is not None:
-                    param_update[p_name] = value
+            return badge_text, badge_color, error_text, params_text, adaptive_value
 
-            try:
-                ctrl.setParameters(param_update)
-            except Exception as e:
-                return f"Errore aggiornando parametri: {e}"
+    def _compute_kpis(self, ch: str):
+        info = _CHANNEL_INFO[ch]
+        with self.lock:
+            measures = self.t1_data if info["T"] == "T1" else self.t2_data
+            setpoints = self.sp1_data if info["T"] == "T1" else self.sp2_data
+            last_measure = measures[-1] if measures else None
+            last_setpoint = setpoints[-1] if setpoints else None
 
-            return "Parametri aggiornati con successo."
+        if last_measure is None:
+            return "-"
 
+        if last_setpoint is None:
+            return "manuale"
+
+        return f"{last_setpoint - last_measure:+.2f} °C"
+
+    def _register_pause_callback(self):
+        @self.app.callback(
+            Output("pause-flag", "data"),
+            Output("pause-btn", "children"),
+            Input("pause-btn", "n_clicks"),
+            State("pause-flag", "data"),
+            prevent_initial_call=True,
+        )
+        def _toggle_pause(n_clicks, paused):
+            new_paused = not bool(paused)
+            self.state.set_paused(new_paused)
+            label = "▶ Riprendi grafico" if new_paused else "⏸ Pausa grafico"
+            return new_paused, label
+
+    def _register_graph_callback(self):
         @self.app.callback(
             Output("real-time-graph", "figure"),
             Input("interval-component", "n_intervals"),
             Input("time-window", "value"),
+            State("pause-flag", "data"),
         )
-        def update_graph(n, time_window):
-            """
-            Callback per aggiornare il grafico in base ai dati
-            ricevuti via get_values().
-            """
+        def _update_graph(n, time_window, paused):
+            if paused:
+                raise PreventUpdate
             if time_window is None or time_window < 1:
                 time_window = self.time_window
+            return self._build_figure(int(time_window))
 
-            with self.lock:
-                if not self.time_data:
-                    time_data = []
-                    t1 = []
-                    t2 = []
-                    sp1 = []
-                    sp2 = []
-                    u1 = []
-                    u2 = []
-                else:
-                    max_tw = min(len(self.time_data), int(time_window))
-                    time_data = self.time_data[-max_tw:]
-                    t1 = self.t1_data[-max_tw:]
-                    t2 = self.t2_data[-max_tw:]
-                    sp1 = self.sp1_data[-max_tw:]
-                    sp2 = self.sp2_data[-max_tw:]
-                    u1 = self.u1_data[-max_tw:]
-                    u2 = self.u2_data[-max_tw:]
+    def _windowed_data(self, time_window: int):
+        with self.lock:
+            if not self.time_data:
+                return {k: [] for k in ("time", "t1", "t2", "sp1", "sp2", "u1", "u2")}
+            max_tw = min(len(self.time_data), int(time_window))
+            return {
+                "time": self.time_data[-max_tw:],
+                "t1": self.t1_data[-max_tw:],
+                "t2": self.t2_data[-max_tw:],
+                "sp1": self.sp1_data[-max_tw:],
+                "sp2": self.sp2_data[-max_tw:],
+                "u1": self.u1_data[-max_tw:],
+                "u2": self.u2_data[-max_tw:],
+            }
 
-            fig = make_subplots(
-                rows=4,
-                cols=1,
-                shared_xaxes=True,
-                vertical_spacing=0.03,
-                subplot_titles=(
-                    "Temperature (T1 / SP1)",
-                    "Control Command (U1)",
-                    "Temperature (T2 / SP2)",
-                    "Control Command (U2)",
-                ),
-            )
+    def _build_figure(self, time_window: int):
+        """
+        Griglia 3x2 (colonna 1 = canale 1, colonna 2 = canale 2):
+          - riga 1: T e SP (se presente);
+          - riga 2: U;
+          - riga 3: errore (SP - T), utile per leggere a colpo d'occhio
+                    sovraelongazione/tempo di assestamento.
+        """
+        d = self._windowed_data(time_window)
 
-            # T1
+        fig = make_subplots(
+            rows=3,
+            cols=2,
+            shared_xaxes=True,
+            vertical_spacing=0.06,
+            horizontal_spacing=0.08,
+            subplot_titles=(
+                "Canale 1: T1/SP1",
+                "Canale 2: T2/SP2",
+                "Canale 1: U1",
+                "Canale 2: U2",
+                "Errore canale 1 (SP1 - T1)",
+                "Errore canale 2 (SP2 - T2)",
+            ),
+        )
+
+        def _add_channel(col, t_data, sp_data, u_data, t_name, u_name):
             fig.add_trace(
-                go.Scatter(x=time_data, y=t1, mode="lines", name="T1"),
-                row=1,
-                col=1,
+                go.Scatter(x=d["time"], y=t_data, mode="lines", name=t_name, line=dict(width=2)),
+                row=1, col=col,
             )
-
-            # SP1: solo se c'è almeno un valore non-None
-            if any(v is not None for v in sp1):
+            if any(v is not None for v in sp_data):
                 fig.add_trace(
-                    go.Scatter(x=time_data, y=sp1, mode="lines", name="SP1"),
-                    row=1,
-                    col=1,
+                    go.Scatter(x=d["time"], y=sp_data, mode="lines", name=f"SP{t_name[-1]}",
+                                line=dict(dash="dash")),
+                    row=1, col=col,
                 )
-
-            # U1
             fig.add_trace(
-                go.Scatter(x=time_data, y=u1, mode="lines", name="U1"),
-                row=2,
-                col=1,
+                go.Scatter(x=d["time"], y=u_data, mode="lines", name=u_name, line=dict(width=1.5)),
+                row=2, col=col,
             )
-
-            # T2
+            error = [
+                (sp - t) if (sp is not None) else None
+                for sp, t in zip(sp_data, t_data)
+            ]
             fig.add_trace(
-                go.Scatter(x=time_data, y=t2, mode="lines", name="T2"),
-                row=3,
-                col=1,
+                go.Scatter(x=d["time"], y=error, mode="lines", name=f"e{t_name[-1]}", showlegend=False),
+                row=3, col=col,
             )
 
-            # SP2: solo se c'è almeno un valore non-None
-            if any(v is not None for v in sp2):
-                fig.add_trace(
-                    go.Scatter(x=time_data, y=sp2, mode="lines", name="SP2"),
-                    row=3,
-                    col=1,
-                )
+        _add_channel(1, d["t1"], d["sp1"], d["u1"], "T1", "U1")
+        _add_channel(2, d["t2"], d["sp2"], d["u2"], "T2", "U2")
 
-            # U2
-            fig.add_trace(
-                go.Scatter(x=time_data, y=u2, mode="lines", name="U2"),
-                row=4,
-                col=1,
-            )
+        fig.update_yaxes(title_text="Temperatura [°C]", row=1, col=1)
+        fig.update_yaxes(title_text="Temperatura [°C]", row=1, col=2)
+        fig.update_yaxes(title_text="U [%]", row=2, col=1)
+        fig.update_yaxes(title_text="U [%]", row=2, col=2)
+        fig.update_yaxes(title_text="Errore [°C]", row=3, col=1)
+        fig.update_yaxes(title_text="Errore [°C]", row=3, col=2)
 
-            # Tick X ogni ~15 punti
-            if len(time_data) > 0:
-                tick_step = max(1, len(time_data) // 15)
-                for r in [1, 2, 3, 4]:
-                    fig.update_xaxes(
-                        tickvals=[time_data[i] for i in range(0, len(time_data), tick_step)],
-                        ticktext=[str(time_data[i]) for i in range(0, len(time_data), tick_step)],
-                        row=r,
-                        col=1,
-                    )
+        if d["time"]:
+            tick_step = max(1, len(d["time"]) // 10)
+            tickvals = d["time"][::tick_step]
+            for r in (1, 2, 3):
+                for c in (1, 2):
+                    fig.update_xaxes(tickvals=tickvals, ticktext=tickvals, row=r, col=c)
 
-            fig.update_layout(
-                height=900,
-                showlegend=True,
-                margin=dict(l=40, r=10, t=40, b=40),
-            )
+        fig.update_layout(
+            height=1000,
+            showlegend=True,
+            template="plotly_dark",
+            margin=dict(l=50, r=50, t=60, b=40),
+        )
 
-            return fig
+        return fig
 
-    # ---------- Run helpers ----------
+    # ---------- Export ----------
+
+    def _register_export_callbacks(self):
+        @self.app.callback(
+            Output("download-csv", "data"),
+            Input("export-csv-btn", "n_clicks"),
+            State("time-window", "value"),
+            prevent_initial_call=True,
+        )
+        def _export_csv(n_clicks, time_window):
+            if not n_clicks:
+                raise PreventUpdate
+            d = self._windowed_data(time_window or self.time_window)
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(["Time", "T1", "T2", "SP1", "SP2", "U1", "U2"])
+            for row in zip(d["time"], d["t1"], d["t2"], d["sp1"], d["sp2"], d["u1"], d["u2"]):
+                writer.writerow(row)
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            return dcc.send_string(buf.getvalue(), filename=f"tclab_dashboard_{timestamp}.csv")
+
+        @self.app.callback(
+            Output("download-png", "data"),
+            Input("export-png-btn", "n_clicks"),
+            State("time-window", "value"),
+            prevent_initial_call=True,
+        )
+        def _export_png(n_clicks, time_window):
+            if not n_clicks:
+                raise PreventUpdate
+            fig = self._build_figure(int(time_window or self.time_window))
+            png_bytes = pio.to_image(fig, format="png")
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            return dcc.send_bytes(png_bytes, filename=f"tclab_dashboard_{timestamp}.png")
+
+    # ================================================================
+    # Run helpers
+    # ================================================================
 
     def _run_app(self):
         self.app.run(
@@ -366,19 +734,18 @@ class ControllerDashboard:
     def run(self):
         self._run_app()
 
-    # ---------- Metodo per aggiornare i dati del grafico ----------
+    # ================================================================
+    # Aggiornamento dati del grafico
+    # ================================================================
 
     def get_values(self, T1, T2, U1, U2, SP1=None, SP2=None):
         """
-        Aggiorna i buffer dei dati usati dal grafico.
+        Aggiorna i buffer dei dati usati dal grafico e dai KPI.
 
-        Da chiamare dal loop di controllo, ad esempio dopo aver letto T1,T2
-        e calcolato U1,U2 e (eventualmente) SP1,SP2.
-
-        Se SP1 o SP2 sono None, NON vengono plottati (vedi callback del grafico).
+        Da chiamare dal loop di controllo dopo aver letto T1,T2 e calcolato
+        U1,U2 e (eventualmente) SP1,SP2. Se SP1/SP2 sono None (canale in
+        manuale) la relativa curva di setpoint non viene plottata.
         """
-        from datetime import datetime  # se non l'hai già in cima al file
-
         with self.lock:
             timestamp = datetime.now().strftime("%H:%M:%S")
 
@@ -388,12 +755,9 @@ class ControllerDashboard:
             self.u1_data.append(float(U1))
             self.u2_data.append(float(U2))
 
-            # Se non sono forniti, salviamo None
-            # (poi il callback decide se plottare o no)
             self.sp1_data.append(float(SP1) if SP1 is not None else None)
             self.sp2_data.append(float(SP2) if SP2 is not None else None)
 
-            # Mantieni al massimo max_points campioni
             if len(self.time_data) > self.max_points:
                 excess = len(self.time_data) - self.max_points
                 for lst in [

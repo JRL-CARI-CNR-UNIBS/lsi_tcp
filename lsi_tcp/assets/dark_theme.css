@@ -1,0 +1,48 @@
+/*
+ * Il componente dcc.Slider (rc-slider) non segue il tema Bootstrap CYBORG:
+ * qui si adattano i suoi colori (rotaia/track/handle/dot/tooltip/testo)
+ * alla palette scura del tema.
+ */
+
+.rc-slider-rail {
+    background-color: #495057;
+}
+
+.rc-slider-track {
+    background-color: #2a9fd6;
+}
+
+.rc-slider-handle {
+    border-color: #2a9fd6;
+    background-color: #2a9fd6;
+}
+
+.rc-slider-handle:hover,
+.rc-slider-handle:active,
+.rc-slider-handle-click-focused:focus {
+    border-color: #58b8e6;
+}
+
+.rc-slider-dot {
+    background-color: #343a40;
+    border-color: #6c757d;
+}
+
+.rc-slider-dot-active {
+    border-color: #2a9fd6;
+}
+
+.rc-slider-mark-text,
+.rc-slider-mark-text-active {
+    color: #adb5bd;
+}
+
+.rc-slider-tooltip-inner {
+    background-color: #2a9fd6;
+    color: #ffffff;
+    box-shadow: none;
+}
+
+.rc-slider-tooltip-arrow {
+    border-top-color: #2a9fd6;
+}

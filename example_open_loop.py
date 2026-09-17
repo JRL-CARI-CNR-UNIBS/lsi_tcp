@@ -1,20 +1,22 @@
 from lsi_tcp import TCLabSystem, FakeTCLabSystem
-from lsi_tcp import PController, ManualController
+from lsi_tcp import ManualController
 from lsi_tcp import ControllerDashboard
-from lsi_tcp import SetpointProfile
-from lsi_tcp import build_setpoint_profile, build_process, init_controllers, run_closed_loop
+from lsi_tcp import build_process, build_channels, init_channels, run_closed_loop
+import argparse
 import time
 
 # ==========================
 # Configurazione generale
 # ==========================
 
-USE_FAKE = True            # True -> usa FakeTCLabSystem, False -> hardware reale
 SAMPLING_PERIOD = 1.0      # [s]
 
 def build_controllers(sampling_period: float):
     """
-    Crea i controllori e li restituisce in un dict.
+    Prova di identificazione (anello aperto): nessun controllore automatico
+    ancora scritto, entrambi i canali restano in ManualController (la
+    potenza U si imposta a mano dalla dashboard). Ritorna il dict richiesto
+    da build_channels(): {"channel1": ..., "channel2": ...}.
     """
     c1 = ManualController(
         sampling_period=sampling_period,
@@ -30,24 +32,37 @@ def build_controllers(sampling_period: float):
         u_max=100.0,
     )
 
-    controllers = {
-        "controller1": c1,
-        "controller2": c2,
+    return {
+        "channel1": c1,
+        "channel2": c2,
     }
-    return controllers
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Esempio anello aperto (controllo manuale)")
+    parser.add_argument(
+        "--fake",
+        action="store_true",
+        help="Usa FakeTCLabSystem invece dell'hardware reale",
+    )
+    return parser.parse_args()
 
 
 def main():
-    process, real_time_factor = build_process(USE_FAKE)
-    controllers = build_controllers(SAMPLING_PERIOD)
-    init_controllers(controllers, process)
+    args = parse_args()
+    use_fake = args.fake
 
-    setpoint_profile = build_setpoint_profile("lsi_tcp/example.csv")
+    process, real_time_factor = build_process(use_fake)
+    controllers = build_controllers(SAMPLING_PERIOD)
+    runtimes, state = build_channels(controllers, sampling_period=SAMPLING_PERIOD)
+    init_channels(runtimes, state, process)
+
     run_closed_loop(
         process=process,
-        controllers=controllers,
-        setpoint_profile=setpoint_profile,
+        runtimes=runtimes,
+        state=state,
         real_time_factor=real_time_factor,
+        is_simulator=use_fake,
         max_duration=5*3600.0,
     )
 

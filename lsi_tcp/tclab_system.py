@@ -6,6 +6,8 @@ from datetime import datetime
 import logging
 import math
 from abc import ABC, abstractmethod
+from collections import deque
+from typing import Any, Dict, List
 
 
 class BaseTCLabSystem(ABC):
@@ -236,7 +238,21 @@ class FakeTCLabSystem(BaseTCLabSystem):
         dT/dt = (-(T - Tamb) + K * u_delayed) / tau
         u_delayed(t) = u(t - L)
 
-    Dead-time implementato come coda di dimensione ~ L / log_interval.
+    Gestione parametri:
+        K1, tau1, L1, K2, tau2, L2 sono esposti con lo stesso pattern
+        usato in BaseController: self._parameters + getListOfParameters() /
+        setParameters() / getParameters(). K e tau sono liberamente
+        modificabili a runtime; L è modificabile a runtime ma solo entro
+        il tetto massimo L_max, fissato in costruzione e non modificabile
+        in seguito.
+
+    Dead-time:
+        implementato con un buffer a lunghezza FISSA (deque(maxlen=n_max),
+        dimensionato su L_max), riempito ad ogni passo con append() e MAI
+        svuotato con popleft(). Il valore ritardato si legge per
+        indicizzazione (self._u1_buffer[-(n_delay + 1)]), con n_delay
+        ricalcolato dalla L corrente ad ogni lettura: questo permette di
+        cambiare L a runtime senza mai ridimensionare il buffer.
 
     realtime_factor > 1: sim più veloce del tempo reale
     realtime_factor < 1: sim più lenta del tempo reale
@@ -250,17 +266,35 @@ class FakeTCLabSystem(BaseTCLabSystem):
                  K1=0.8, tau1=100.0, L1=10.0,
                  K2=0.5, tau2=120.0, L2=15.0,
                  Tamb=23.0,
+                 L_max=60.0,
+                 u0=0.0,
                  realtime_factor=1.0):
-        # Parametri del modello
-        self.K1 = float(K1)
-        self.tau1 = float(tau1)
-        self.L1 = float(L1)
-
-        self.K2 = float(K2)
-        self.tau2 = float(tau2)
-        self.L2 = float(L2)
+        """
+        L_max: tetto massimo per il ritardo [s]. Non modificabile a runtime;
+               dimensiona il buffer del dead-time. L1 e L2 non possono
+               superarlo, né in costruzione né in setParameters().
+        u0:    valore costante con cui viene pre-riempito il buffer del
+               dead-time, per evitare un gradino fittizio nei primi
+               passi di simulazione (invece di riempirlo con zeri).
+        """
+        if L_max <= 0:
+            raise ValueError("L_max deve essere > 0")
+        if L1 > L_max:
+            raise ValueError(f"L1={L1} non può superare L_max={L_max}")
+        if L2 > L_max:
+            raise ValueError(f"L2={L2} non può superare L_max={L_max}")
 
         self.Tamb = float(Tamb)
+        self.L_max = float(L_max)
+        self._u0 = float(u0)
+
+        # Parametri del modello, gestiti con lo stesso pattern di BaseController
+        self._parameters: Dict[str, Any] = {
+            "K1": float(K1), "tau1": float(tau1), "L1": float(L1),
+            "K2": float(K2), "tau2": float(tau2), "L2": float(L2),
+        }
+        for name, value in self._parameters.items():
+            setattr(self, name, value)
 
         # Inizializza il BaseTCLabSystem con realtime_factor settabile
         super().__init__(log_flag=log_flag,
@@ -274,14 +308,27 @@ class FakeTCLabSystem(BaseTCLabSystem):
         self.T1 = self.Tamb
         self.T2 = self.Tamb
 
-        # Dead-time implementato come coda (numero di campioni di ritardo)
+        # Timestamp dell'ultimo avanzamento del modello, usato per calcolare
+        # il dt REALMENTE trascorso tra due letture (vedi _advance_model):
+        # readProcessVariables() può essere chiamato da più punti (thread di
+        # acquisizione, loop di controllo) e il modello deve avanzare in base
+        # al tempo simulato davvero trascorso, non di un passo fisso per
+        # chiamata (altrimenti la dinamica risulterebbe più veloce di quanto
+        # dichiarato dai parametri K/tau/L se letta da più punti).
+        self._last_advance_time = time.monotonic()
+
         dt = self.log_interval if self.log_interval > 0 else 1.0
 
-        self.n_delay1 = max(1, int(round(self.L1 / dt))) if self.L1 > 0 else 1
-        self.n_delay2 = max(1, int(round(self.L2 / dt))) if self.L2 > 0 else 1
+        # Buffer a lunghezza fissa dimensionato sul massimo ritardo possibile
+        # (L_max), con un campione di margine per l'indicizzazione
+        # self._u_buffer[-(n_delay + 1)]. Il buffer non viene MAI
+        # ridimensionato: cambiare L a runtime cambia solo n_delay.
+        n_max = max(1, int(math.ceil(self.L_max / dt))) + 1
 
-        self.u1_queue = [0.0] * self.n_delay1
-        self.u2_queue = [0.0] * self.n_delay2
+        # Pre-riempito con u0 costante (non zeri) per evitare un gradino
+        # fittizio nei primi n_max passi di simulazione.
+        self._u1_buffer = deque([self._u0] * n_max, maxlen=n_max)
+        self._u2_buffer = deque([self._u0] * n_max, maxlen=n_max)
 
     def _advance_model(self, dt):
         """
@@ -292,15 +339,26 @@ class FakeTCLabSystem(BaseTCLabSystem):
         if dt <= 0.0:
             return
 
-        # Aggiorna le code di ritardo con gli ultimi comandi
-        self.u1_queue.pop(0)
-        self.u1_queue.append(self.u1)
+        # Riempimento del buffer: SEMPRE append(), mai popleft(). Il buffer
+        # ha lunghezza fissa (maxlen), quindi l'append più vecchio esce da solo.
+        self._u1_buffer.append(self.u1)
+        self._u2_buffer.append(self.u2)
 
-        self.u2_queue.pop(0)
-        self.u2_queue.append(self.u2)
+        # n_delay ricalcolato dalla L corrente ad ogni lettura: L può essere
+        # cambiata a runtime (entro L_max) senza mai toccare il buffer.
+        # Nota: n_delay = round(L / dt) introduce un errore di arrotondamento
+        # quando L non è multiplo esatto di dt (log_interval). Alle frequenze
+        # tipiche del TCLab (dt ~ 1 s, L decine di secondi) l'errore è
+        # trascurabile: è una scelta consapevole, non una svista.
+        # Clamp difensivo: con un dt reale molto piccolo (due chiamate a
+        # readProcessVariables() ravvicinate) n_delay potrebbe eccedere la
+        # lunghezza del buffer; lo limitiamo all'indice massimo disponibile.
+        max_index = len(self._u1_buffer) - 1
+        n_delay1 = min(int(round(self.L1 / dt)), max_index)
+        n_delay2 = min(int(round(self.L2 / dt)), max_index)
 
-        u1_delayed = self.u1_queue[0]
-        u2_delayed = self.u2_queue[0]
+        u1_delayed = self._u1_buffer[-(n_delay1 + 1)]
+        u2_delayed = self._u2_buffer[-(n_delay2 + 1)]
 
         # Eulero esplicito
         if self.tau1 > 0:
@@ -313,12 +371,19 @@ class FakeTCLabSystem(BaseTCLabSystem):
         """
         Per la versione Fake, ogni lettura:
 
-        - fa avanzare il modello di ~log_interval secondi (tempo simulato)
+        - fa avanzare il modello del tempo simulato REALMENTE trascorso
+          dall'ultima lettura (dt = tempo reale trascorso * realtime_factor),
+          non di un incremento fisso per chiamata. Così il modello avanza
+          correttamente anche se readProcessVariables() viene chiamato da
+          più punti (thread di acquisizione + loop di controllo) con
+          frequenze diverse.
         - restituisce T1, T2 aggiornati
         """
-        dt = self.log_interval if self.log_interval > 0 else 1.0
+        now = time.monotonic()
 
         with self.lock:
+            dt = (now - self._last_advance_time) * self.realtime_factor
+            self._last_advance_time = now
             self._advance_model(dt)
             t1 = self.T1
             t2 = self.T2
@@ -332,3 +397,39 @@ class FakeTCLabSystem(BaseTCLabSystem):
     def _close_lab(self):
         """Niente da chiudere per il simulatore."""
         pass
+
+    # ---------------- Gestione parametri (stesso pattern di BaseController) ----
+
+    def getListOfParameters(self) -> List[str]:
+        """Ritorna la lista dei nomi dei parametri settabili del modello."""
+        return list(self._parameters.keys())
+
+    def setParameters(self, parameter_dict: Dict[str, Any]) -> None:
+        """
+        Imposta i parametri del modello a partire da {nome: valore}.
+
+        K1, tau1, K2, tau2 sono liberamente modificabili. L1, L2 sono
+        modificabili a runtime solo entro L_max (oltre, ValueError):
+        il buffer del dead-time è dimensionato una volta per tutte su
+        L_max e non viene mai ridimensionato.
+        """
+        new_L1 = parameter_dict.get("L1", self.L1)
+        new_L2 = parameter_dict.get("L2", self.L2)
+
+        if new_L1 > self.L_max:
+            raise ValueError(f"L1={new_L1} non può superare L_max={self.L_max}")
+        if new_L2 > self.L_max:
+            raise ValueError(f"L2={new_L2} non può superare L_max={self.L_max}")
+
+        for name, value in parameter_dict.items():
+            if name not in self._parameters:
+                raise KeyError(
+                    f"Parametro '{name}' non valido per {type(self).__name__}. "
+                    f"Parametri validi: {self.getListOfParameters()}"
+                )
+            self._parameters[name] = value
+            setattr(self, name, value)
+
+    def getParameters(self) -> Dict[str, Any]:
+        """Restituisce una COPIA dei parametri correnti del modello."""
+        return dict(self._parameters)

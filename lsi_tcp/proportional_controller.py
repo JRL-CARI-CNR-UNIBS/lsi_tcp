@@ -1,11 +1,9 @@
-from lsi_tcp import  BaseController
+from lsi_tcp import BaseController
 class PController(BaseController):
     """
     Controllore proporzionale SISO con:
-        - u_fb = Kp * (reference - measure)
-        - u_ff = feedforward
-        - u = u_fb + u_ff, con saturazione gestita dalla classe base
-          tramite _apply_saturation().
+        - u = Kp * (reference - measure), con saturazione gestita dalla
+          classe base tramite _apply_saturation().
     """
 
     def __init__(
@@ -31,7 +29,6 @@ class PController(BaseController):
         reference: float,
         measure: float,
         initial_u: float,
-        feedforward: float
     ) -> None:
         # Per il P puro non c'è stato interno da inizializzare.
         # Qui potresti fare controlli, logging, ecc.
@@ -41,16 +38,12 @@ class PController(BaseController):
         self,
         reference: float,
         measure: float,
-        feedforward: float
     ) -> float:
         # Errore
         error = reference - measure
 
         # Azione proporzionale di feedback
-        u_fb = self.Kp * error
-
-        # Somma con feedforward
-        u = u_fb + feedforward
+        u = self.Kp * error
 
         # Saturazione tramite helper della classe base
         u = self._apply_saturation(u)
